@@ -214,6 +214,25 @@ class LeggedRobot(BaseTask):
         # log additional curriculum info
         if self.cfg.terrain.curriculum:
             self.extras["episode"]["terrain_level"] = torch.mean(self.terrain_levels.float())
+            if hasattr(self, "terrain_type_ids"):
+                current_terrain_type = self.terrain_type_ids[self.terrain_levels, self.terrain_types]
+                terrain_type_names = getattr(
+                    self,
+                    "terrain_type_names",
+                    {
+                        0: "smooth_slope",
+                        1: "rough_slope",
+                        2: "stairs_up",
+                        3: "stairs_down",
+                        4: "discrete",
+                    },
+                )
+                for terrain_type, terrain_name in terrain_type_names.items():
+                    type_mask = current_terrain_type == terrain_type
+                    if torch.any(type_mask):
+                        self.extras["episode"][f"terrain_level_{terrain_name}"] = torch.mean(
+                            self.terrain_levels[type_mask].float()
+                        )
         if self.cfg.commands.curriculum:
             self.extras["episode"]["max_command_x"] = self.command_ranges["lin_vel_x"][1]
         # send timeout info to the algorithm
@@ -963,6 +982,9 @@ class LeggedRobot(BaseTask):
             self.terrain_types = torch.div(torch.arange(self.num_envs, device=self.device), (self.num_envs/self.cfg.terrain.num_cols), rounding_mode='floor').to(torch.long)
             self.max_terrain_level = self.cfg.terrain.num_rows
             self.terrain_origins = torch.from_numpy(self.terrain.env_origins).to(self.device).to(torch.float)
+            if hasattr(self.terrain, "terrain_type_grid"):
+                self.terrain_type_ids = torch.from_numpy(self.terrain.terrain_type_grid).to(self.device).to(torch.long)
+                self.terrain_type_names = dict(getattr(self.terrain, "terrain_type_names", {}))
             self.env_origins[:] = self.terrain_origins[self.terrain_levels, self.terrain_types]
         else:
             self.custom_origins = False

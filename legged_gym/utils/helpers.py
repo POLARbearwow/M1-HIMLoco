@@ -102,6 +102,8 @@ def parse_sim_params(args, cfg):
     return sim_params
 
 def get_load_path(root, load_run=-1, checkpoint=-1):
+    if isinstance(load_run, str) and load_run.strip() == "-1":
+        load_run = -1
     try:
         runs = os.listdir(root)
         #TODO sort by date to handle change of month
@@ -115,6 +117,8 @@ def get_load_path(root, load_run=-1, checkpoint=-1):
     else:
         load_run = os.path.join(root, load_run)
 
+    if isinstance(checkpoint, str) and checkpoint.strip() == "-1":
+        checkpoint = -1
     if checkpoint==-1:
         models = [file for file in os.listdir(load_run) if 'model' in file]
         models.sort(key=lambda m: '{0:0>15}'.format(m))
@@ -192,6 +196,58 @@ def export_policy_as_jit(actor_critic, path):
         traced_script_module = torch.jit.script(model)
         traced_script_module.save(path)
 
+def export_policy_as_onnx(actor_critic, path):
+    _require_onnx_package()
+    os.makedirs(path, exist_ok=True)
+    onnx_path = os.path.join(path, "policy.onnx")
+
+    if hasattr(actor_critic, "estimator"):
+        model = PolicyExporterHIM(actor_critic).to("cpu")
+        input_name = "obs_history"
+        input_dim = actor_critic.num_actor_obs
+    else:
+        model = copy.deepcopy(actor_critic.actor).to("cpu")
+        input_name = "obs"
+        input_dim = _infer_actor_input_dim(actor_critic)
+
+    model.eval()
+    dummy_input = torch.zeros(1, input_dim, dtype=torch.float32)
+    torch.onnx.export(
+        model,
+        dummy_input,
+        onnx_path,
+        export_params=True,
+        opset_version=13,
+        do_constant_folding=True,
+        input_names=[input_name],
+        output_names=["actions"],
+        dynamic_axes={
+            input_name: {0: "batch"},
+            "actions": {0: "batch"},
+        },
+    )
+    return onnx_path
+
+def _require_onnx_package():
+    try:
+        import onnx  # noqa: F401
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "ONNX export requires the 'onnx' package. Install it in the active environment first."
+        ) from exc
+
+def _infer_actor_input_dim(actor_critic):
+    if hasattr(actor_critic, "num_actor_obs"):
+        return int(actor_critic.num_actor_obs)
+
+    first_linear = next(
+        (module for module in actor_critic.actor.modules() if isinstance(module, torch.nn.Linear)),
+        None,
+    )
+    if first_linear is None:
+        raise ValueError("Failed to infer actor input dimension for ONNX export.")
+    return int(first_linear.in_features)
+
 # class PolicyExporterLSTM(torch.nn.Module):
 #     def __init__(self, actor_critic):
 #         super().__init__()
@@ -229,13 +285,12 @@ class PolicyExporterHIM(torch.nn.Module):
         self.estimator = copy.deepcopy(actor_critic.estimator.encoder)
 
     def forward(self, obs_history):
-        parts = self.estimator(obs_history).squeeze(0)[0:19]   # -> [19]
-        vel, z = parts[:3], parts[3:]
+        parts = self.estimator(obs_history)
+        vel, z = parts[..., :3], parts[..., 3:]
         z = F.normalize(z, dim=-1, p=2.0)
-        #  -> [57+3+16]=[76]
-        obs_curr = obs_history.squeeze(0)[:57]
-        actor_in = torch.cat([obs_curr, vel, z], dim=0)   # 1-D
-        return self.actor(actor_in.unsqueeze(0)).squeeze(0)  # actor 需要 2-D 输入，输出再压回 1-D
+        obs_curr = obs_history[..., :57]
+        actor_in = torch.cat([obs_curr, vel, z], dim=-1)
+        return self.actor(actor_in)
     def export(self, path):
         os.makedirs(path, exist_ok=True)
         path = os.path.join(path, 'policy.pt')

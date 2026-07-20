@@ -19,6 +19,23 @@ Update the paths in `config.yaml` to your local absolute paths:
 cd mujoco
 python pdandrl.py
 ```
+
+For `m1`, export the latest checkpoint as both `jit` and `onnx` first:
+
+```bash
+cd legged_gym/scripts
+python play.py --task=m1_him
+```
+
+Then launch the ONNX-based MuJoCo deploy script:
+
+```bash
+cd mujoco
+python deploy_mujoco_m1.py
+```
+
+`m1` keyboard fallback: `W/S` forward-backward, `Q/E` strafe, `A/D` yaw, `Space` zero command, `R` reset.
+
 | Keyboard   | Function         |
 | ----- | ---------------- |
 | W/S   | Forward/Backward |

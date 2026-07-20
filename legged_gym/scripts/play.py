@@ -28,12 +28,20 @@
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 
-from legged_gym import LEGGED_GYM_ROOT_DIR
 import os
+import sys
+
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+RSL_ROOT = os.path.join(ROOT_DIR, "rsl_rl")
+for path in (RSL_ROOT, ROOT_DIR):
+    if path in sys.path:
+        sys.path.remove(path)
+    sys.path.insert(0, path)
 
 import isaacgym
+from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs import *
-from legged_gym.utils import  get_args, export_policy_as_jit, task_registry, Logger
+from legged_gym.utils import  get_args, export_policy_as_jit, export_policy_as_onnx, task_registry, Logger
 
 import numpy as np
 import torch
@@ -67,11 +75,13 @@ def play(args, x_vel=1.0, y_vel=0.0, yaw_vel=0.0):
     policy = ppo_runner.get_inference_policy(device=env.device)
 
 
-    # export policy as a jit module (used to run it from C++)
+    # export policy artifacts for deployment
     if EXPORT_POLICY:
         path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'policies')
         export_policy_as_jit(ppo_runner.alg.actor_critic, path)
         print('Exported policy as jit script to: ', path)
+        onnx_path = export_policy_as_onnx(ppo_runner.alg.actor_critic, path)
+        print('Exported policy as onnx to: ', onnx_path)
 
     logger = Logger(env.dt)
     robot_index = 0 # which robot is used for logging
@@ -132,4 +142,4 @@ if __name__ == '__main__':
     RECORD_FRAMES = False
     MOVE_CAMERA = False
     args = get_args()
-    play(args, x_vel=1.0, y_vel=0.0, yaw_vel=0.0)
+    play(args, x_vel=0.8, y_vel=0.0, yaw_vel=0.0)

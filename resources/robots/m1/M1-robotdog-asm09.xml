@@ -1,0 +1,205 @@
+<?xml version="1.0" ?>
+<mujoco model="M1-robotdog-asm09">
+  <compiler angle="radian" meshdir="./meshes/" autolimits="true"/>
+  <option cone="elliptic" impratio="100" integrator="implicitfast" timestep="0.001"/>
+  <visual>
+    <global ellipsoidinertia="true"/>
+  </visual>
+  <default>
+    <default class="sirius_wheel">
+      <geom condim="6" solimp="0.5 0.95 0.001 0.5 2"/>
+      <site group="5"/>
+      <default class="abad">
+        <motor ctrlrange="-40 40" forcerange="-40 40"/>
+      </default>
+      <default class="hip">
+        <motor ctrlrange="-40 40" forcerange="-40 40"/>
+      </default>
+      <default class="knee">
+        <motor ctrlrange="-100 100" forcerange="-100 100"/>
+      </default>
+      <default class="wheel">
+        <motor ctrlrange="-40 40" forcerange="-40 40"/>
+      </default>
+      <default class="visual">
+        <geom type="mesh" contype="0" conaffinity="0" group="2"/>
+      </default>
+      <default class="collision">
+        <!-- Original M1 collision friction was implicit MuJoCo default: 1 0.005 0.0001 -->
+        <!-- M20-aligned friction test: 1 0.01 0.001 -->
+        <geom group="3" friction="1 0.01 0.001"/>
+      </default>
+    </default>
+  </default>
+  <asset>
+    <mesh name="trunk" file="trunk.STL"/>
+    <mesh name="LF_ABAD_Link" file="LF_ABAD_Link.STL"/>
+    <mesh name="LF_THIGH_Link" file="LF_THIGH_Link.STL"/>
+    <mesh name="LF_SHANK_Link" file="LF_SHANK_Link.STL"/>
+    <mesh name="LF_FOOT_Link" file="LF_FOOT_Link.STL"/>
+    <mesh name="RF_ABAD_Link" file="RF_ABAD_Link.STL"/>
+    <mesh name="RF_THIGH_Link" file="RF_THIGH_Link.STL"/>
+    <mesh name="RF_SHANK_Link" file="RF_SHANK_Link.STL"/>
+    <mesh name="RF_FOOT_Link" file="RF_FOOT_Link.STL"/>
+    <mesh name="LH_ABAD_Link" file="LH_ABAD_Link.STL"/>
+    <mesh name="LH_THIGH_Link" file="LH_THIGH_Link.STL"/>
+    <mesh name="LH_SHANK_Link" file="LH_SHANK_Link.STL"/>
+    <mesh name="LH_FOOT_Link" file="LH_FOOT_Link.STL"/>
+    <mesh name="RH_ABAD_Link" file="RH_ABAD_Link.STL"/>
+    <mesh name="RH_THIGH_Link" file="RH_THIGH_Link.STL"/>
+    <mesh name="RH_SHANK_Link" file="RH_SHANK_Link.STL"/>
+    <mesh name="RH_FOOT_Link" file="RH_FOOT_Link.STL"/>
+    <material name="black" rgba="0.0 0.0 0.0 1.0"/>
+    <material name="light_grey" rgba="0.85 0.85 0.85 1.0"/>
+    <material name="grey" rgba="0.2 0.2 0.2 1.0"/>
+  </asset>
+  <worldbody>
+    <body name="trunk" pos="0 0 1.0" childclass="sirius_wheel">
+      <camera name="tracking" mode="trackcom" pos="0 -1 0.8" xyaxes="1 0 0 0 1 1"/>
+      <joint name="floating_base_joint" type="free" limited="false" actuatorfrclimited="false"/>
+      <site name="imu" pos="0 0 0"/>
+      <inertial pos="0.0012616 5.2895e-05 0.025714" mass="13.9" fullinertia="0.047768 0.43376 0.47392 5.3367e-06 -1.422e-06 7.6034e-06"/>
+      <geom class="visual" mesh="trunk" material="light_grey"/>
+      <geom class="collision" type="box" pos="0 0 0.06" size="0.2 0.125 0.08"/>
+      <geom class="collision" type="box" pos="0.37 0 0.06" size="0.03 0.12 0.055"/>
+      <geom class="collision" type="box" pos="-0.37 0 0.06" size="0.03 0.12 0.055"/>
+      <body name="RF_abad_link" pos="0.28614 -0.06 0.058">
+        <joint name="RF_HAA" pos="0 0 0" axis="1 0 0" range="-1.570796 1.134464" actuatorfrcrange="-40 40"/>
+        <inertial pos="-2.5854e-05 -0.014876 -0.00063077" mass="3.325" fullinertia="0.0030921 0.0022587 0.0021107 -2.5247e-06 -1.0139e-05 1.3093e-06"/>
+        <geom class="visual" mesh="RF_ABAD_Link" material="light_grey"/>
+        <geom class="collision" type="cylinder" pos="0 0 0" quat="0.707107 0 0.707107 0" size="0.033 0.04"/>
+        <body name="RF_thigh_link" pos="0 -0.061 0">
+          <joint name="RF_HFE" pos="0 0 0" axis="0 1 0" range="-1.201135 4.156458" actuatorfrcrange="-40 40"/>
+          <inertial pos="-0.010605 -0.056769 -0.06102" mass="2.515" fullinertia="0.016911 0.019346 0.0027816 -1.0748e-05 -0.0015773 -4.6592e-05"/>
+          <geom class="visual" mesh="RF_THIGH_Link" material="light_grey"/>
+          <geom class="collision" type="cylinder" pos="0 -0.058 0" quat="0.707107 0.707107 0 0" size="0.046 0.0475"/>
+          <geom class="collision" type="box" pos="-0.024 -0.078 -0.12" quat="0.707107 0 0.707107 0" size="0.06 0.015 0.02"/>
+          <body name="RF_shank_link" pos="0 -0.0778 -0.23848">
+            <joint name="RF_KNEE" pos="0 0 0" axis="0 1 0" range="-2.617994 -0.680678" actuatorfrcrange="-100 100"/>
+            <inertial pos="0.0092708 -0.023991 -0.28836" mass="1.578" fullinertia="0.012757 0.013714 0.001252 -3.6897e-05 0.0003 -0.0002993"/>
+            <geom class="visual" mesh="RF_SHANK_Link" material="light_grey"/>
+            <geom class="collision" type="box" pos="0.033 0 -0.14" quat="0.780707 0 0.624897 0" size="0.0775 0.013 0.013"/>
+            <geom class="collision" type="box" pos="0.028 0 -0.27" quat="0.581683 0 0.813416 0" size="0.043 0.0165 0.0175"/>
+            <body name="RF_FOOT_link" pos="0 -0.07855 -0.36538">
+              <joint name="RF_WHEEL" pos="0 0 0" axis="0 1 0" limited="false" actuatorfrcrange="-40 40"/>
+              <inertial pos="-2.607e-06 0.021187 -2.5561e-07" mass="0.856" fullinertia="0.0030911 0.0059162 0.0030898 1.6913e-08 2.1053e-07 2.0046e-09"/>
+              <geom class="visual" mesh="RF_FOOT_Link" material="grey"/>
+              <geom class="collision" type="cylinder" pos="0 0.02325 0" quat="0.707107 0.707107 0 0" size="0.095 0.0225"/>
+            </body>
+          </body>
+        </body>
+      </body>
+      <body name="LF_abad_link" pos="0.28614 0.06 0.058">
+        <joint name="LF_HAA" pos="0 0 0" axis="1 0 0" range="-1.134464 1.570796" actuatorfrcrange="-40 40"/>
+        <inertial pos="-2.5841e-05 0.014876 0.00063077" mass="3.325" fullinertia="0.0030921 0.0022587 0.0021107 2.5247e-06 1.0139e-05 1.3093e-06"/>
+        <geom class="visual" mesh="LF_ABAD_Link" material="light_grey"/>
+        <geom class="collision" type="cylinder" pos="0 0 0" quat="0.707107 0 0.707107 0" size="0.033 0.04"/>
+        <body name="LF_thigh_link" pos="0 0.063 0">
+          <joint name="LF_HFE" pos="0 0 0" axis="0 1 0" range="-1.201135 4.156458" actuatorfrcrange="-40 40"/>
+          <inertial pos="-0.010007 0.05226 -0.058836" mass="2.515" fullinertia="0.014475 0.016621 0.0024626 3.5191e-05 -0.0013218 9.9535e-05"/>
+          <geom class="visual" mesh="LF_THIGH_Link" material="light_grey"/>
+          <geom class="collision" type="cylinder" pos="0 0.058 0" quat="0.707107 0.707107 0 0" size="0.046 0.0475"/>
+          <geom class="collision" type="box" pos="-0.024 0.078 -0.12" quat="0.707107 0 0.707107 0" size="0.06 0.015 0.02"/>
+          <body name="LF_shank_link" pos="0 0.0778 -0.23848">
+            <joint name="LF_KNEE" pos="0 0 0" axis="0 1 0" range="-2.617994 -0.680678" actuatorfrcrange="-100 100"/>
+            <inertial pos="0.008931 0.023979 -0.2881" mass="1.578" fullinertia="0.012778 0.013738 0.0012546 3.3951e-05 0.0003029 0.00030089"/>
+            <geom class="visual" mesh="LF_SHANK_Link" material="light_grey"/>
+            <geom class="collision" type="box" pos="0.033 0 -0.14" quat="0.780707 0 0.624897 0" size="0.0775 0.013 0.013"/>
+            <geom class="collision" type="box" pos="0.028 0 -0.27" quat="0.581683 0 0.813416 0" size="0.043 0.0165 0.0175"/>
+            <body name="LF_FOOT_link" pos="0 0.07855 -0.36538">
+              <joint name="LF_WHEEL" pos="0 0 0" axis="0 1 0" limited="false" actuatorfrcrange="-40 40"/>
+              <inertial pos="2.6076e-06 -0.021187 -2.4862e-07" mass="0.856" fullinertia="0.0030911 0.0059162 0.0030898 1.6918e-08 -2.0692e-07 -1.9592e-09"/>
+              <geom class="visual" mesh="LF_FOOT_Link" material="grey"/>
+              <geom class="collision" type="cylinder" pos="0 -0.02325 0.00011" quat="0.707107 0.707107 0 0" size="0.095 0.0225"/>
+            </body>
+          </body>
+        </body>
+      </body>
+      <body name="RH_abad_link" pos="-0.28586 -0.06 0.058">
+        <joint name="RH_HAA" pos="0 0 0" axis="1 0 0" range="-1.570796 1.134464" actuatorfrcrange="-40 40"/>
+        <inertial pos="-2.5841e-05 -0.014876 -0.00063077" mass="3.325" fullinertia="0.0030921 0.0022587 0.0021107 -2.5247e-06 -1.0139e-05 1.3093e-06"/>
+        <geom class="visual" mesh="RH_ABAD_Link" material="light_grey"/>
+        <geom class="collision" type="cylinder" pos="0 0 0" quat="0.707107 0 0.707107 0" size="0.033 0.04"/>
+        <body name="RH_thigh_link" pos="0 -0.063 0">
+          <joint name="RH_HFE" pos="0 0 0" axis="0 1 0" range="-4.156458 1.201135" actuatorfrcrange="-40 40"/>
+          <inertial pos="0.010007 -0.05226 -0.058836" mass="2.515" fullinertia="0.014475 0.016621 0.0024626 3.5191e-05 0.0013218 -9.9535e-05"/>
+          <geom class="visual" mesh="RH_THIGH_Link" material="light_grey"/>
+          <geom class="collision" type="cylinder" pos="0 -0.058 0" quat="0.707107 0.707107 0 0" size="0.046 0.0475"/>
+          <geom class="collision" type="box" pos="0.024 -0.078 -0.12" quat="0.707107 0 -0.707107 0" size="0.06 0.015 0.02"/>
+          <body name="RH_shank_link" pos="0 -0.0778 -0.23848">
+            <joint name="RH_KNEE" pos="0 0 0" axis="0 1 0" range="0.680678 2.617994" actuatorfrcrange="-100 100"/>
+            <inertial pos="-0.008931 -0.023979 -0.2881" mass="1.578" fullinertia="0.012778 0.013738 0.0012546 3.3951e-05 -0.0003029 -0.00030089"/>
+            <geom class="visual" mesh="RH_SHANK_Link" material="light_grey"/>
+            <geom class="collision" type="box" pos="-0.033 0 -0.14" quat="0.780707 0 -0.624897 0" size="0.0775 0.013 0.013"/>
+            <geom class="collision" type="box" pos="-0.028 0 -0.27" quat="0.581683 0 -0.813416 0" size="0.043 0.0165 0.0175"/>
+            <body name="RH_FOOT_link" pos="0 -0.07855 -0.36538">
+              <joint name="RH_WHEEL" pos="0 0 0" axis="0 1 0" limited="false" actuatorfrcrange="-40 40"/>
+              <inertial pos="-2.6005e-06 0.021187 -3.1438e-07" mass="0.856" fullinertia="0.0030911 0.0059162 0.0030898 1.6863e-08 2.4066e-07 2.3857e-09"/>
+              <geom class="visual" mesh="RH_FOOT_Link" material="grey"/>
+              <geom class="collision" type="cylinder" pos="0 0.02325 0" quat="0.707107 0.707107 0 0" size="0.095 0.0225"/>
+            </body>
+          </body>
+        </body>
+      </body>
+      <body name="LH_abad_link" pos="-0.28586 0.06 0.058">
+        <joint name="LH_HAA" pos="0 0 0" axis="1 0 0" range="-1.134464 1.570796" actuatorfrcrange="-40 40"/>
+        <inertial pos="-2.5841e-05 0.014876 0.00063077" mass="3.325" fullinertia="0.0030921 0.0022587 0.0021107 2.5247e-06 1.0139e-05 1.3093e-06"/>
+        <geom class="visual" mesh="LH_ABAD_Link" material="light_grey"/>
+        <geom class="collision" type="cylinder" pos="0 0 0" quat="0.707107 0 0.707107 0" size="0.033 0.04"/>
+        <body name="LH_thigh_link" pos="0 0.063 0">
+          <joint name="LH_HFE" pos="0 0 0" axis="0 1 0" range="-4.156458 1.201135" actuatorfrcrange="-40 40"/>
+          <inertial pos="0.010605 0.056769 -0.06102" mass="2.515" fullinertia="0.016911 0.019346 0.0027816 -1.0748e-05 0.0015773 4.6592e-05"/>
+          <geom class="visual" mesh="LH_THIGH_Link" material="light_grey"/>
+          <geom class="collision" type="cylinder" pos="0 0.058 0" quat="0.707107 0.707107 0 0" size="0.046 0.0475"/>
+          <geom class="collision" type="box" pos="0.024 0.078 -0.12" quat="0.707107 0 -0.707107 0" size="0.06 0.015 0.02"/>
+          <body name="LH_shank_link" pos="0 0.0778 -0.23848">
+            <joint name="LH_KNEE" pos="0 0 0" axis="0 1 0" range="0.680678 2.617994" actuatorfrcrange="-100 100"/>
+            <inertial pos="-0.0092708 0.023991 -0.28836" mass="1.578" fullinertia="0.012757 0.013714 0.001252 -3.6897e-05 -0.0003 0.0002993"/>
+            <geom class="visual" mesh="LH_SHANK_Link" material="light_grey"/>
+            <geom class="collision" type="box" pos="-0.033 0 -0.14" quat="0.780707 0 -0.624897 0" size="0.0775 0.013 0.013"/>
+            <geom class="collision" type="box" pos="-0.028 0 -0.27" quat="0.581683 0 -0.813416 0" size="0.043 0.0165 0.0175"/>
+            <body name="LH_FOOT_link" pos="0 0.07855 -0.36538">
+              <joint name="LH_WHEEL" pos="0 0 0" axis="0 1 0" limited="false" actuatorfrcrange="-40 40"/>
+              <inertial pos="2.607e-06 -0.021187 -2.5561e-07" mass="0.856" fullinertia="0.0030911 0.0059162 0.0030898 1.6913e-08 -2.1053e-07 -2.0046e-09"/>
+              <geom class="visual" mesh="LH_FOOT_Link" material="grey"/>
+              <geom class="collision" type="cylinder" pos="0.0001 -0.02325 0" quat="0.707107 0.707107 0 0" size="0.095 0.0225"/>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor name="FR_ABAD" joint="RF_HAA" class="abad"/>
+    <motor name="FR_HIP" joint="RF_HFE" class="hip"/>
+    <motor name="FR_KNEE" joint="RF_KNEE" class="knee"/>
+    <motor name="FL_ABAD" joint="LF_HAA" class="abad"/>
+    <motor name="FL_HIP" joint="LF_HFE" class="hip"/>
+    <motor name="FL_KNEE" joint="LF_KNEE" class="knee"/>
+    <motor name="RR_ABAD" joint="RH_HAA" class="abad"/>
+    <motor name="RR_HIP" joint="RH_HFE" class="hip"/>
+    <motor name="RR_KNEE" joint="RH_KNEE" class="knee"/>
+    <motor name="RL_ABAD" joint="LH_HAA" class="abad"/>
+    <motor name="RL_HIP" joint="LH_HFE" class="hip"/>
+    <motor name="RL_KNEE" joint="LH_KNEE" class="knee"/>
+    <motor name="FR_WHEEL" joint="RF_WHEEL" class="wheel"/>
+    <motor name="FL_WHEEL" joint="LF_WHEEL" class="wheel"/>
+    <motor name="RR_WHEEL" joint="RH_WHEEL" class="wheel"/>
+    <motor name="RL_WHEEL" joint="LH_WHEEL" class="wheel"/>
+  </actuator>
+  <sensor>
+    <gyro name="body_gyro" site="imu"/>
+    <framequat name="body_quat" objtype="site" objname="imu"/>
+    <accelerometer name="body_acc" site="imu"/>
+  </sensor>
+
+  <keyframe>
+        <key name="default_pos"
+             qpos="0 0 0.54
+                   1 0 0 0
+                   0.0 0.8 -1.28 0.0
+                   0.0 0.8 -1.28 0.0
+                   0.0 -0.8 1.28 0.0
+                   0.0 -0.8 1.28 0.0"/>
+    </keyframe>
+</mujoco>

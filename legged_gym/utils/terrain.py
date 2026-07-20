@@ -46,9 +46,17 @@ class Terrain:
         self.env_length = cfg.terrain_length
         self.env_width = cfg.terrain_width
         self.proportions = [np.sum(cfg.terrain_proportions[:i+1]) for i in range(len(cfg.terrain_proportions))]
+        self.terrain_type_names = {
+            0: "smooth_slope",
+            1: "rough_slope",
+            2: "stairs_up",
+            3: "stairs_down",
+            4: "discrete",
+        }
 
         self.cfg.num_sub_terrains = cfg.num_rows * cfg.num_cols
         self.env_origins = np.zeros((cfg.num_rows, cfg.num_cols, 3))
+        self.terrain_type_grid = np.zeros((cfg.num_rows, cfg.num_cols), dtype=np.int32)
 
         self.width_per_env_pixels = int(self.env_width / cfg.horizontal_scale)
         self.length_per_env_pixels = int(self.env_length / cfg.horizontal_scale)
@@ -81,7 +89,19 @@ class Terrain:
             difficulty = np.random.choice([0.5, 0.75, 0.9])
             terrain = self.make_terrain(choice, difficulty)
             self.add_terrain_to_map(terrain, i, j)
+            self.terrain_type_grid[i, j] = self._classify_terrain(choice)
         
+    def _classify_terrain(self, choice):
+        if choice < self.proportions[0]:
+            return 0
+        if choice < self.proportions[1]:
+            return 1
+        if choice < self.proportions[2]:
+            return 2
+        if choice < self.proportions[3]:
+            return 3
+        return 4
+
     def curiculum(self):
         for j in range(self.cfg.num_cols):
             for i in range(self.cfg.num_rows):
@@ -90,6 +110,7 @@ class Terrain:
 
                 terrain = self.make_terrain(choice, difficulty)
                 self.add_terrain_to_map(terrain, i, j)
+                self.terrain_type_grid[i, j] = self._classify_terrain(choice)
 
     def selected_terrain(self):
         terrain_type = self.cfg.terrain_kwargs.pop('type')

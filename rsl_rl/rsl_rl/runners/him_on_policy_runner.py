@@ -80,6 +80,7 @@ class HIMOnPolicyRunner:
         self.tot_timesteps = 0
         self.tot_time = 0
         self.current_learning_iteration = 0
+        self.checkpoint_metadata = None
 
         _, _ = self.env.reset()
     
@@ -226,13 +227,22 @@ class HIMOnPolicyRunner:
                                locs['num_learning_iterations'] - locs['it']):.1f}s\n""")
         print(log_string)
 
+    def set_checkpoint_metadata(self, metadata):
+        self.checkpoint_metadata = metadata
+
     def save(self, path, infos=None):
+        merged_infos = {}
+        if self.checkpoint_metadata is not None:
+            merged_infos.update(self.checkpoint_metadata)
+        if infos is not None:
+            merged_infos["runtime"] = infos
+
         torch.save({
             'model_state_dict': self.alg.actor_critic.state_dict(),
             'optimizer_state_dict': self.alg.optimizer.state_dict(),
             'estimator_optimizer_state_dict': self.alg.actor_critic.estimator.optimizer.state_dict(),
             'iter': self.current_learning_iteration,
-            'infos': infos,
+            'infos': merged_infos or None,
             }, path)
 
     def load(self, path, load_optimizer=True):
