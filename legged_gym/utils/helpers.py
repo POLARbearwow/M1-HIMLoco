@@ -184,10 +184,16 @@ def get_args():
     #     args.sim_device += f":{args.sim_device_id}"
     return args
 
+def _get_him_policy_exporter(actor_critic):
+    if hasattr(actor_critic.estimator, "strip_history_commands"):
+        from legged_gym.utils.policy_exporter_him_no_cmd import PolicyExporterHIMNoCmd
+        return PolicyExporterHIMNoCmd(actor_critic)
+    return PolicyExporterHIM(actor_critic)
+
 def export_policy_as_jit(actor_critic, path):
     if hasattr(actor_critic, 'estimator'):
         # assumes LSTM: TODO add GRU
-        exporter = PolicyExporterHIM(actor_critic)
+        exporter = _get_him_policy_exporter(actor_critic)
         exporter.export(path)
     else: 
         os.makedirs(path, exist_ok=True)
@@ -202,7 +208,7 @@ def export_policy_as_onnx(actor_critic, path):
     onnx_path = os.path.join(path, "policy.onnx")
 
     if hasattr(actor_critic, "estimator"):
-        model = PolicyExporterHIM(actor_critic).to("cpu")
+        model = _get_him_policy_exporter(actor_critic).to("cpu")
         input_name = "obs_history"
         input_dim = actor_critic.num_actor_obs
     else:

@@ -37,7 +37,7 @@ from torch.utils.tensorboard import SummaryWriter
 import torch
 
 from rsl_rl.algorithms import PPO, HIMPPO
-from rsl_rl.modules import HIMActorCritic
+from rsl_rl.modules import HIMActorCritic, HIMActorCriticNoCmd
 from rsl_rl.env import VecEnv
 
 
