@@ -11,7 +11,7 @@ class M1RoughCfg(LeggedRobotCfg):
         num_actions = 16
 
     class terrain(LeggedRobotCfg.terrain):
-        mesh_type = "trimesh"
+        mesh_type = "plane"
         # mesh_type = "trimesh"
         static_friction = 1.0
         dynamic_friction = 1.0
@@ -169,7 +169,7 @@ class M1RoughCfgPPO(LeggedRobotCfgPPO):
         entropy_coef = 0.005
 
     class runner(LeggedRobotCfgPPO.runner):
-        policy_class_name = "HIMActorCriticNoCmd"
+        policy_class_name = "HIMActorCritic"
         save_interval = 100
         num_steps_per_env = 48
         max_iterations = 50000
@@ -179,3 +179,9 @@ class M1RoughCfgPPO(LeggedRobotCfgPPO):
         load_run = -1
         checkpoint = -1
         resume_path = None
+
+
+class M1RoughCfgPPONoCmd(M1RoughCfgPPO):
+    class runner(M1RoughCfgPPO.runner):
+        policy_class_name = "HIMActorCriticNoCmd"
+        experiment_name = "M1_HIM_NoCmd"
