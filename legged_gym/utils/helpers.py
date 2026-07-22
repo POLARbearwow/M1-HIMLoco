@@ -209,13 +209,52 @@ def export_policy_as_onnx(actor_critic, path):
 
     if hasattr(actor_critic, "estimator"):
         model = _get_him_policy_exporter(actor_critic).to("cpu")
+        model.eval()
+        # NoCmd exporter expects deploy-side strip: history without commands + full current obs.
+        if hasattr(actor_critic.estimator, "strip_history_commands"):
+            history_dim = int(model.obs_history_no_cmd_dim)
+            curr_dim = int(model.num_one_step_obs)
+            dummy_history = torch.zeros(1, history_dim, dtype=torch.float32)
+            dummy_curr = torch.zeros(1, curr_dim, dtype=torch.float32)
+            torch.onnx.export(
+                model,
+                (dummy_history, dummy_curr),
+                onnx_path,
+                export_params=True,
+                opset_version=13,
+                do_constant_folding=True,
+                input_names=["obs_history_no_cmd", "obs_curr"],
+                output_names=["actions"],
+                dynamic_axes={
+                    "obs_history_no_cmd": {0: "batch"},
+                    "obs_curr": {0: "batch"},
+                    "actions": {0: "batch"},
+                },
+            )
+            return onnx_path
+
         input_name = "obs_history"
         input_dim = actor_critic.num_actor_obs
-    else:
-        model = copy.deepcopy(actor_critic.actor).to("cpu")
-        input_name = "obs"
-        input_dim = _infer_actor_input_dim(actor_critic)
+        dummy_input = torch.zeros(1, input_dim, dtype=torch.float32)
+        torch.onnx.export(
+            model,
+            dummy_input,
+            onnx_path,
+            export_params=True,
+            opset_version=13,
+            do_constant_folding=True,
+            input_names=[input_name],
+            output_names=["actions"],
+            dynamic_axes={
+                input_name: {0: "batch"},
+                "actions": {0: "batch"},
+            },
+        )
+        return onnx_path
 
+    model = copy.deepcopy(actor_critic.actor).to("cpu")
+    input_name = "obs"
+    input_dim = _infer_actor_input_dim(actor_critic)
     model.eval()
     dummy_input = torch.zeros(1, input_dim, dtype=torch.float32)
     torch.onnx.export(

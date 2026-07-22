@@ -245,6 +245,37 @@ class M1HimRobot(LeggedRobot):
             standing_penalty,
         )
 
+    def _reward_wheel_vel_air_side(self):
+        """Penalize wheels when airborne or side-loading.
+
+        Conditions (per foot/wheel, OR):
+          1) off ground: |Fz| < contact threshold
+          2) side load: ||F_xy|| > ratio * |Fz|
+
+        Strengthening vs plain |omega|:
+          - active bias when condition holds (fires even if omega~0)
+          - quadratic wheel speed
+          - continuous side-force excess weight
+        """
+        foot_forces = self.contact_forces[:, self.feet_indices, :]
+        f_xy = torch.norm(foot_forces[:, :, :2], dim=2)
+        f_z = torch.abs(foot_forces[:, :, 2])
+        contact_thresh = float(self.cfg.rewards.wheel_air_contact_force_threshold)
+        side_ratio = float(self.cfg.rewards.wheel_side_force_ratio)
+        vel_sq_coef = float(self.cfg.rewards.wheel_vel_air_side_vel_square_coef)
+        active_bias = float(self.cfg.rewards.wheel_vel_air_side_active_bias)
+        force_coef = float(self.cfg.rewards.wheel_vel_air_side_force_coef)
+
+        in_air = f_z < contact_thresh
+        side_excess = (f_xy - side_ratio * f_z).clip(min=0.0)
+        side_load = side_excess > 0.0
+        mask = (in_air | side_load).float()
+
+        joint_vel = torch.abs(self.dof_vel[:, self.wheel_indices])
+        vel_term = joint_vel + vel_sq_coef * torch.square(joint_vel)
+        side_weight = 1.0 + force_coef * side_excess
+        return torch.sum(mask * side_weight * (vel_term + active_bias), dim=1)
+
     def _reward_gait(self):
         sync_reward_0 = self._sync_reward_func(*self.gait_synced_feet_pairs[0])
         sync_reward_1 = self._sync_reward_func(*self.gait_synced_feet_pairs[1])

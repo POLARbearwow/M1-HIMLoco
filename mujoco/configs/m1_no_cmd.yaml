@@ -44,7 +44,11 @@ wheel_policy_indices: [3, 7, 11, 15]
 
 num_actions: 16
 num_obs: 57
-obs_history_dim: 342
+history_length: 6
+# Full one-step obs still includes command; command indices in each frame:
+cmd_slice: [6, 9]
+# Deploy directly rolls no-cmd frames: 6 * 54
+obs_history_no_cmd_dim: 324
 
 lin_vel_scale: 2.0
 ang_vel_scale: 0.25

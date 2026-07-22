@@ -94,7 +94,17 @@ class DeployM1NoCmd:
         self.control_decimation = int(cfg["control_decimation"])
         self.num_actions = int(cfg["num_actions"])
         self.num_obs = int(cfg["num_obs"])
-        self.expected_obs_history_dim = int(cfg["obs_history_dim"])
+        self.history_length = int(cfg.get("history_length", 6))
+        self.cmd_slice = cfg.get("cmd_slice", [6, 9])
+        self.cmd_start = int(self.cmd_slice[0])
+        self.cmd_end = int(self.cmd_slice[1])
+        self.num_obs_no_cmd = self.num_obs - (self.cmd_end - self.cmd_start)
+        self.expected_obs_history_no_cmd_dim = int(
+            cfg.get(
+                "obs_history_no_cmd_dim",
+                self.history_length * self.num_obs_no_cmd,
+            )
+        )
         self.log_interval_steps = int(cfg["log_interval_steps"])
         self.torque_warning_cooldown_steps = int(cfg["torque_warning_cooldown_steps"])
 
@@ -120,19 +130,41 @@ class DeployM1NoCmd:
         self.ort_session = ort.InferenceSession(
             self.policy_path, providers=["CPUExecutionProvider"]
         )
-        self.input_name = self.ort_session.get_inputs()[0].name
+        self.input_infos = self.ort_session.get_inputs()
         self.output_name = self.ort_session.get_outputs()[0].name
-        self.input_dim = self._infer_last_dim(self.ort_session.get_inputs()[0].shape)
         self.output_dim = self._infer_last_dim(self.ort_session.get_outputs()[0].shape)
 
-        self.obs_history_dim = self.expected_obs_history_dim
-        if self.input_dim != self.expected_obs_history_dim:
-            print(
-                f"[Warning] ONNX input dim is {self.input_dim}, expected "
-                f"{self.expected_obs_history_dim}. The deploy script will adapt by padding or truncating."
+        if len(self.input_infos) != 2:
+            raise RuntimeError(
+                f"NoCmd ONNX expects 2 inputs (obs_history_no_cmd, obs_curr), "
+                f"got {len(self.input_infos)}: {[i.name for i in self.input_infos]}"
             )
-            self.obs_history_dim = max(self.input_dim, self.expected_obs_history_dim)
 
+        self.history_input_name = self.input_infos[0].name
+        self.curr_input_name = self.input_infos[1].name
+        self.history_input_dim = self._infer_last_dim(self.input_infos[0].shape)
+        self.curr_input_dim = self._infer_last_dim(self.input_infos[1].shape)
+
+        # Prefer names if present
+        for info in self.input_infos:
+            dim = self._infer_last_dim(info.shape)
+            if info.name == "obs_history_no_cmd" or dim == self.expected_obs_history_no_cmd_dim:
+                self.history_input_name = info.name
+                self.history_input_dim = dim
+            if info.name == "obs_curr" or dim == self.num_obs:
+                self.curr_input_name = info.name
+                self.curr_input_dim = dim
+
+        if self.history_input_dim != self.expected_obs_history_no_cmd_dim:
+            print(
+                f"[Warning] ONNX history input dim is {self.history_input_dim}, expected "
+                f"{self.expected_obs_history_no_cmd_dim}."
+            )
+        if self.curr_input_dim != self.num_obs:
+            print(
+                f"[Warning] ONNX current-obs input dim is {self.curr_input_dim}, expected "
+                f"{self.num_obs}."
+            )
         if self.output_dim != self.num_actions:
             print(
                 f"[Warning] ONNX output dim is {self.output_dim}, expected {self.num_actions}. "
@@ -154,7 +186,10 @@ class DeployM1NoCmd:
         self.projected_gravity = np.zeros(3, dtype=np.float32)
         self.action_policy = np.zeros(self.num_actions, dtype=np.float32)
         self.obs = np.zeros(self.num_obs, dtype=np.float32)
-        self.obs_history = np.zeros(self.obs_history_dim, dtype=np.float32)
+        # Direct no-cmd history roll buffer for ONNX estimator input (no full 342 buffer).
+        self.obs_history_no_cmd = np.zeros(
+            self.expected_obs_history_no_cmd_dim, dtype=np.float32
+        )
         self.ctrl_policy = np.zeros(self.num_actions, dtype=np.float32)
         self.last_warn_step = {}
         self.control_step = 0
@@ -210,15 +245,24 @@ class DeployM1NoCmd:
         print(f"[M1 NoCmd Deploy] Config: {self.cfg['config_path']}")
         print(f"[M1 NoCmd Deploy] Scene : {self.xml_path}")
         print(f"[M1 NoCmd Deploy] ONNX  : {self.policy_path}")
-        print(f"[M1 NoCmd Deploy] ONNX input dim : {self.input_dim}")
+        print(
+            f"[M1 NoCmd Deploy] ONNX inputs: "
+            f"{self.history_input_name}={self.history_input_dim}, "
+            f"{self.curr_input_name}={self.curr_input_dim}"
+        )
         print(f"[M1 NoCmd Deploy] ONNX output dim: {self.output_dim}")
         print(f"[M1 NoCmd Deploy] Train DOF order : {self.train_dof_names}")
         print(f"[M1 NoCmd Deploy] MuJoCo qpos order: {self.mujoco_joint_names}")
         print(f"[M1 NoCmd Deploy] MuJoCo actuator order: {self.actuator_joint_names}")
         print(f"[M1 NoCmd Deploy] policy_to_qpos    : {self.policy_to_qpos}")
         print(f"[M1 NoCmd Deploy] policy_to_actuator: {self.policy_to_actuator}")
-        print("[M1 NoCmd Deploy] Deploy obs (full history for ONNX): ang_vel(3)+gravity(3)+cmd(3)+dof_err(16)+dof_vel(16)+last_action(16)=57; estimator strips cmd inside network")
-        print(f"[M1 NoCmd Deploy] Obs history dim: {self.expected_obs_history_dim}")
+        print(
+            "[M1 NoCmd Deploy] Direct no-cmd history: "
+            f"obs_curr={self.num_obs} (with cmd), "
+            f"history_no_cmd={self.expected_obs_history_no_cmd_dim} "
+            f"({self.history_length}x{self.num_obs_no_cmd}); "
+            f"cmd slice=[{self.cmd_start}:{self.cmd_end}]"
+        )
         print("[M1 NoCmd Deploy] Keyboard fallback: W/S vx, Q/E vy, A/D yaw, Space zero cmd, R reset")
 
     def _on_press(self, key):
@@ -307,7 +351,7 @@ class DeployM1NoCmd:
         self.action_policy[:] = 0.0
         self.ctrl_policy[:] = 0.0
         self.obs[:] = 0.0
-        self.obs_history[:] = 0.0
+        self.obs_history_no_cmd[:] = 0.0
         self.keyboard_state.pending_reset = False
         self.keyboard_state.clear_command = False
         self.last_warn_step.clear()
@@ -347,6 +391,11 @@ class DeployM1NoCmd:
             self.base_quat, gravity_vec
         ).astype(np.float32)
 
+    def _strip_commands_one_step(self, obs):
+        return np.concatenate(
+            (obs[: self.cmd_start], obs[self.cmd_end :]), axis=-1
+        ).astype(np.float32)
+
     def compute_observation(self):
         dof_err = self.qpos_policy - self.default_angles
         dof_err[self.wheel_policy_indices] = 0.0
@@ -358,26 +407,42 @@ class DeployM1NoCmd:
         self.obs[25:41] = self.qvel_policy * self.dof_vel_scale
         self.obs[41:57] = self.action_policy
 
-        self.obs_history[self.num_obs:] = self.obs_history[:-self.num_obs].copy()
-        self.obs_history[: self.num_obs] = self.obs
+        # Directly roll 54-dim no-cmd frames into history_no_cmd (324).
+        obs_no_cmd = self._strip_commands_one_step(self.obs)
+        self.obs_history_no_cmd[self.num_obs_no_cmd :] = self.obs_history_no_cmd[
+            : -self.num_obs_no_cmd
+        ].copy()
+        self.obs_history_no_cmd[: self.num_obs_no_cmd] = obs_no_cmd
 
-    def _prepare_policy_input(self):
-        if self.input_dim == self.expected_obs_history_dim:
-            return self.obs_history.reshape(1, -1)
+    def _prepare_policy_inputs(self):
+        history = self.obs_history_no_cmd
+        if self.history_input_dim != self.expected_obs_history_no_cmd_dim:
+            if self.history_input_dim > self.expected_obs_history_no_cmd_dim:
+                padded = np.zeros(self.history_input_dim, dtype=np.float32)
+                padded[: self.expected_obs_history_no_cmd_dim] = history
+                history = padded
+            else:
+                history = history[: self.history_input_dim]
 
-        if self.input_dim > self.expected_obs_history_dim:
-            policy_input = np.zeros((1, self.input_dim), dtype=np.float32)
-            policy_input[0, : self.expected_obs_history_dim] = self.obs_history[
-                : self.expected_obs_history_dim
-            ]
-            return policy_input
+        curr = self.obs
+        if self.curr_input_dim != self.num_obs:
+            if self.curr_input_dim > self.num_obs:
+                padded = np.zeros(self.curr_input_dim, dtype=np.float32)
+                padded[: self.num_obs] = curr
+                curr = padded
+            else:
+                curr = curr[: self.curr_input_dim]
 
-        return self.obs_history[: self.input_dim].reshape(1, -1)
+        return history.reshape(1, -1), curr.reshape(1, -1)
 
     def run_policy(self):
-        policy_input = self._prepare_policy_input()
+        history_input, curr_input = self._prepare_policy_inputs()
         action = self.ort_session.run(
-            [self.output_name], {self.input_name: policy_input.astype(np.float32)}
+            [self.output_name],
+            {
+                self.history_input_name: history_input.astype(np.float32),
+                self.curr_input_name: curr_input.astype(np.float32),
+            },
         )[0][0]
 
         if action.shape[0] != self.num_actions:
@@ -469,7 +534,9 @@ class DeployM1NoCmd:
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Deploy HIMLoco M1 NoCmd policy in MuJoCo (estimator strips history commands internally).")
+    parser = argparse.ArgumentParser(
+        description="Deploy HIMLoco M1 NoCmd policy in MuJoCo (deploy-side strip: ONNX inputs are history_no_cmd + obs_curr)."
+    )
     parser.add_argument(
         "--config",
         type=str,

@@ -11,8 +11,8 @@ class M1RoughCfg(LeggedRobotCfg):
         num_actions = 16
 
     class terrain(LeggedRobotCfg.terrain):
-        mesh_type = "plane"
-        # mesh_type = "trimesh"
+        # mesh_type = "plane"
+        mesh_type = "trimesh"
         static_friction = 1.0
         dynamic_friction = 1.0
         # terrain_proportions = [0.1, 0.2, 0.3, 0.3, 0.1]
@@ -131,7 +131,7 @@ class M1RoughCfg(LeggedRobotCfg):
             hip_default = -0.5
             stand_still = -1.0 #0.5
             collision = -1.0
-            feet_stumble = -0.1
+            feet_stumble = -1.0
             action_rate = -0.01
             torques = -5.0e-6
             dof_vel = -1e-5
@@ -142,6 +142,9 @@ class M1RoughCfg(LeggedRobotCfg):
             feet_height_body = 0.0
             gait = 0.6 
             wheel_vel_penalty = -1.0
+            # Penalize wheel spin when airborne or when horizontal contact force is large vs vertical.
+            # Log value is ~ mean(raw); with active_bias, expect clearly non-zero negatives if conditions fire.
+            wheel_vel_air_side = -0.2
 
         only_positive_rewards = True
         tracking_sigma = 0.20
@@ -162,6 +165,16 @@ class M1RoughCfg(LeggedRobotCfg):
         gait_synced_feet_pair_labels = [["LF", "RH"], ["LH", "RF"]]
         wheel_vel_penalty_velocity_threshold = 0.15
         wheel_vel_penalty_command_threshold = 0.15
+        # wheel_vel_air_side: |Fz| below this => treated as off-ground
+        wheel_air_contact_force_threshold = 1.0
+        # wheel_vel_air_side: punish if ||F_xy|| > ratio * |Fz|
+        wheel_side_force_ratio = 0.5
+        # extra |omega|^2 weight inside the raw reward
+        wheel_vel_air_side_vel_square_coef = 0.05
+        # constant penalty per active foot/wheel when condition holds (even if omega~0)
+        wheel_vel_air_side_active_bias = 1.0
+        # multiply raw by (1 + force_coef * max(||Fxy||-ratio*|Fz|, 0))
+        wheel_vel_air_side_force_coef = 0.02
 
 
 class M1RoughCfgPPO(LeggedRobotCfgPPO):
