@@ -3,7 +3,7 @@ from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobot
 
 class M1RoughCfg(LeggedRobotCfg):
     class env(LeggedRobotCfg.env):
-        num_envs = 2048
+        num_envs = 4096
         num_one_step_observations = 3 + 3 + 3 + 16 + 16 + 16
         num_observations = num_one_step_observations * 6
         num_one_step_privileged_obs = num_one_step_observations + 3 + 3 + 11 * 17 + 12
@@ -11,12 +11,11 @@ class M1RoughCfg(LeggedRobotCfg):
         num_actions = 16
 
     class terrain(LeggedRobotCfg.terrain):
-        # mesh_type = "plane"
         mesh_type = "trimesh"
         static_friction = 1.0
         dynamic_friction = 1.0
         # terrain_proportions = [0.1, 0.2, 0.3, 0.3, 0.1]
-        terrain_proportions = [0.1, 0.1, 0.4, 0.4, 0.0]
+        terrain_proportions = [0.1, 0.1, 0.4, 0.3, 0.1]
 
 
     class commands(LeggedRobotCfg.commands):
@@ -25,8 +24,8 @@ class M1RoughCfg(LeggedRobotCfg):
         num_commands = 4
         resampling_time = 10.0
         heading_command = True
-        y_only_env_ratio = 0.1
-        yaw_only_env_ratio = 0.1
+        y_only_env_ratio = 0.0
+        yaw_only_env_ratio = 0.0
 
         class ranges:
             lin_vel_x = [-1.5, 1.5]
@@ -65,6 +64,10 @@ class M1RoughCfg(LeggedRobotCfg):
         control_type = "P"
         stiffness = {"HAA": 40.0, "HFE": 40.0, "KNEE": 40.0, "WHEEL": 0.0}
         damping = {"HAA": 2.0, "HFE": 2.0, "KNEE": 2.0, "WHEEL": 1.0}
+        # m1-dreamwaq torque limit settings
+        rated_torque_limit_ratio = 0.8
+        rated_torque_limit_ratio_haa = 0.7
+        rated_torque_limit_ratio_hfe = 0.7
         action_scale = 0.25
         vel_scale = 5.0
         decimation = 4
@@ -131,33 +134,52 @@ class M1RoughCfg(LeggedRobotCfg):
             hip_default = -0.5
             stand_still = -1.0 #0.5
             collision = -1.0
-            feet_stumble = -1.0
-            action_rate = -0.01
+            feet_stumble = -0.1
+            # First-order action smoothness: ||a_t - a_{t-1}||^2  (Lab smoothness_1)
+            action_rate = -0.03
+            # Second-order action smoothness: ||a_t - 2 a_{t-1} + a_{t-2}||^2  (Lab smoothness_2)
+            smoothness_2 = -0.01
+            # m1-dreamwaq torque/velocity penalties
             torques = -5.0e-6
-            dof_vel = -1e-5
+            torque_limits = -0.001
+            raw_torques = -0.01
+            joint_power = -0.0001
+            dof_vel = -1e-4
+            wheel_dof_vel_limits = -2.0
+            knee_dof_vel_limits = -2.0
             dof_acc = -1e-7
             run_still = -0.05
             feet_distance_y_exp = 0.5
             feet_air_time = 1.5
+            # Stairs-up swing clearance (terrain-relative height peak at target).
             feet_height_body = 0.0
             gait = 0.6 
-            wheel_vel_penalty = -1.0
+            wheel_vel_penalty = -0.0
             # Penalize wheel spin when airborne or when horizontal contact force is large vs vertical.
             # Log value is ~ mean(raw); with active_bias, expect clearly non-zero negatives if conditions fire.
-            wheel_vel_air_side = -0.2
+            wheel_vel_air_side = 0.0
 
         only_positive_rewards = True
         tracking_sigma = 0.20
         soft_dof_pos_limit = 1.0
-        soft_dof_vel_limit = 1.0
-        soft_torque_limit = 1.0
+        # m1-dreamwaq torque/velocity soft limits
+        soft_dof_vel_limit = 0.6
+        wheel_soft_dof_vel_limit = 0.7
+        knee_soft_dof_vel_limit = 0.6
+        soft_torque_limit = 0.7
         base_height_target = 0.54
         max_contact_force = 100.0
         feet_distance_y_target = 0.56
         feet_distance_y_sigma = 0.08
         feet_air_time_target = 0.7
+        # feet_height_body: trunk-relative swing clearance on stairs_up [m]
+        # clearance = foot_z_body + base_height_target  (≈0 standing, ≈0.2 when lifted 0.2 m)
         feet_height_body_target = 0.1
         feet_height_body_sigma = 0.05
+        # weight foot horizontal speed (body frame) so static standing lifts get little credit
+        feet_height_tanh_mult = 2.0
+        # only reward when forward command exceeds this [m/s]
+        feet_height_cmd_threshold = 0.1
         gait_std = 0.2
         gait_max_err = 0.5 #clipped
         gait_lateral_cmd_threshold = 0.2 # y command threshold for gait reward
@@ -172,7 +194,7 @@ class M1RoughCfg(LeggedRobotCfg):
         # extra |omega|^2 weight inside the raw reward
         wheel_vel_air_side_vel_square_coef = 0.05
         # constant penalty per active foot/wheel when condition holds (even if omega~0)
-        wheel_vel_air_side_active_bias = 1.0
+        wheel_vel_air_side_active_bias = 0.5
         # multiply raw by (1 + force_coef * max(||Fxy||-ratio*|Fz|, 0))
         wheel_vel_air_side_force_coef = 0.02
 

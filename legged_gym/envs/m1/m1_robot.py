@@ -25,6 +25,67 @@ class M1HimRobot(LeggedRobot):
         mean_y = torch.mean(foot_pos_in_body[:, :, 1], dim=0)
         self.feet_side_sign = torch.where(mean_y >= 0.0, torch.ones_like(mean_y), -torch.ones_like(mean_y))
         self._init_gait_reward_buffers(foot_pos_in_body)
+        # m1-dreamwaq torque/velocity transplant buffers
+        self.raw_torques = torch.zeros_like(self.torques)
+        knee_indices = [i for i, name in enumerate(self.dof_names) if "KNEE" in name]
+        self.knee_indices = torch.tensor(knee_indices, dtype=torch.long, device=self.device)
+
+    # m1-dreamwaq torque/velocity limit transplant
+    def _process_dof_props(self, props, env_id):
+        if env_id == 0:
+            self.dof_pos_limits = torch.zeros(self.num_dof, 2, dtype=torch.float, device=self.device, requires_grad=False)
+            self.dof_vel_limits = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
+            self.torque_limits = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
+            self.rated_torque_limits = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
+            for i in range(len(props)):
+                self.dof_pos_limits[i, 0] = props["lower"][i].item()
+                self.dof_pos_limits[i, 1] = props["upper"][i].item()
+                self.dof_vel_limits[i] = props["velocity"][i].item()
+                self.torque_limits[i] = props["effort"][i].item()
+
+                rated_torque_limit_ratio = self.cfg.control.rated_torque_limit_ratio
+                dof_name = self.dof_names[i]
+                if "HAA" in dof_name:
+                    rated_torque_limit_ratio = self.cfg.control.rated_torque_limit_ratio_haa
+                elif "HFE" in dof_name:
+                    rated_torque_limit_ratio = self.cfg.control.rated_torque_limit_ratio_hfe
+                self.rated_torque_limits[i] = rated_torque_limit_ratio * self.torque_limits[i]
+
+                m = (self.dof_pos_limits[i, 0] + self.dof_pos_limits[i, 1]) / 2
+                r = self.dof_pos_limits[i, 1] - self.dof_pos_limits[i, 0]
+                self.dof_pos_limits[i, 0] = m - 0.5 * r * self.cfg.rewards.soft_dof_pos_limit
+                self.dof_pos_limits[i, 1] = m + 0.5 * r * self.cfg.rewards.soft_dof_pos_limit
+        return props
+
+    def _compute_torques(self, actions):
+        dof_err = self.default_dof_pos - self.dof_pos
+        dof_err[:, self.wheel_indices] = 0
+        actions_scaled = actions * self.cfg.control.action_scale
+        actions_scaled[:, self.wheel_indices] = 0
+        vel_ref = torch.zeros_like(actions_scaled)
+        vel_tmp = actions * self.cfg.control.vel_scale
+        vel_ref[:, self.wheel_indices] = vel_tmp[:, self.wheel_indices]
+
+        control_type = self.cfg.control.control_type
+        if control_type == "P":
+            raw_torques = (
+                self.p_gains * self.Kp_factors * (actions_scaled + dof_err)
+                + self.d_gains * self.Kd_factors * (vel_ref - self.dof_vel)
+            )
+        elif control_type == "V":
+            raw_torques = (
+                self.p_gains * (actions_scaled - self.dof_vel)
+                - self.d_gains * (self.dof_vel - self.last_dof_vel) / self.sim_params.dt
+            )
+        elif control_type == "T":
+            raw_torques = actions_scaled
+        else:
+            raise NameError(f"Unknown controller type: {control_type}")
+
+        raw_torques *= self.motor_strength_factors
+        self.raw_torques = raw_torques
+        return torch.clip(raw_torques, -self.rated_torque_limits, self.rated_torque_limits)
+    # end m1-dreamwaq torque/velocity limit transplant
 
     def reset_idx(self, env_ids):
         if len(env_ids) == 0:
@@ -70,6 +131,13 @@ class M1HimRobot(LeggedRobot):
 
         terrain_type = self.terrain_type_ids[self.terrain_levels[env_ids], self.terrain_types[env_ids]]
         return (terrain_type == 2) | (terrain_type == 3)
+
+    def _get_stairs_up_env_mask(self):
+        """True for envs currently on stairs-up terrain (type id 2)."""
+        if not hasattr(self, "terrain_type_ids"):
+            return torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        terrain_type = self.terrain_type_ids[self.terrain_levels, self.terrain_types]
+        return terrain_type == 2
 
     def _resample_y_only_envs(self, env_ids):
         self.y_only_env_mask[env_ids] = False
@@ -219,14 +287,49 @@ class M1HimRobot(LeggedRobot):
         return reward
 
     def _reward_feet_height_body(self):
+        """Swing-foot clearance reward for stairs-up only (body-frame / trunk-relative).
+
+        Foot height is measured in the base/trunk frame so stair-edge height-field
+        jumps do not create discontinuous targets mid-swing.
+
+        clearance ≈ foot_z_body + base_height_target
+          - standing near default height ≈ 0
+          - lifting the foot toward trunk increases clearance
+        Reward peaks at feet_height_body_target (default 0.2 m).
+
+        Gated by stairs_up only, forward cmd, and foot xy speed.
+        (No upright/tilt gate.)
+        """
         contact = self.contact_forces[:, self.feet_indices, 2] > 1.0
         swing_mask = (~contact).float()
-        feet_height = self._get_feet_heights()
 
-        height_error = torch.square(feet_height - self.cfg.rewards.feet_height_body_target)
-        reward = torch.exp(-height_error / (self.cfg.rewards.feet_height_body_sigma ** 2))
-        reward = torch.sum(reward * swing_mask, dim=1)
-        reward *= torch.clamp(-self.projected_gravity[:, 2], 0.0, 0.7) / 0.7
+        # World foot pos/vel relative to trunk, then rotate into body frame.
+        foot_pos_translated = self.feet_pos - self.root_states[:, :3].unsqueeze(1)
+        foot_vel_translated = self.feet_vel - self.root_states[:, 7:10].unsqueeze(1)
+        foot_pos_body = torch.zeros_like(foot_pos_translated)
+        foot_vel_body = torch.zeros_like(foot_vel_translated)
+        for i in range(self.feet_indices.shape[0]):
+            foot_pos_body[:, i, :] = quat_rotate_inverse(self.base_quat, foot_pos_translated[:, i, :])
+            foot_vel_body[:, i, :] = quat_rotate_inverse(self.base_quat, foot_vel_translated[:, i, :])
+
+        # Positive when the foot is raised toward/above the nominal base height.
+        base_h = float(self.cfg.rewards.base_height_target)
+        feet_clearance = foot_pos_body[:, :, 2] + base_h
+
+        target = float(self.cfg.rewards.feet_height_body_target)
+        sigma = float(self.cfg.rewards.feet_height_body_sigma)
+        tanh_mult = float(self.cfg.rewards.feet_height_tanh_mult)
+        cmd_thr = float(self.cfg.rewards.feet_height_cmd_threshold)
+
+        height_error = torch.square(feet_clearance - target)
+        clearance_reward = torch.exp(-height_error / (sigma ** 2))
+        foot_xy_vel = torch.norm(foot_vel_body[:, :, :2], dim=2)
+        vel_gate = torch.tanh(tanh_mult * foot_xy_vel)
+        reward = torch.sum(clearance_reward * vel_gate * swing_mask, dim=1)
+
+        stairs_up_gate = self._get_stairs_up_env_mask().float()
+        forward_gate = (self.commands[:, 0] > cmd_thr).float()
+        reward *= stairs_up_gate * forward_gate
         return reward
 
     def _reward_wheel_vel_penalty(self):
@@ -275,6 +378,46 @@ class M1HimRobot(LeggedRobot):
         vel_term = joint_vel + vel_sq_coef * torch.square(joint_vel)
         side_weight = 1.0 + force_coef * side_excess
         return torch.sum(mask * side_weight * (vel_term + active_bias), dim=1)
+
+    # m1-dreamwaq torque/velocity reward transplant
+    def _reward_joint_power(self):
+        return torch.sum(torch.abs(self.dof_vel) * torch.abs(self.torques), dim=1)
+
+    def _reward_raw_torques(self):
+        return torch.sum((torch.abs(self.raw_torques) - self.rated_torque_limits).clip(min=0.0), dim=1)
+
+    def _reward_torque_limits(self):
+        return torch.sum(
+            (torch.abs(self.torques) - self.rated_torque_limits * self.cfg.rewards.soft_torque_limit).clip(min=0.0),
+            dim=1,
+        )
+
+    def _reward_dof_vel(self):
+        vel = self.dof_vel.clone()
+        vel[:, self.wheel_indices] = 0
+        return torch.sum(torch.square(vel), dim=1)
+
+    def _reward_wheel_dof_vel_limits(self):
+        wheel_vel = torch.abs(self.dof_vel[:, self.wheel_indices])
+        wheel_limits = self.dof_vel_limits[self.wheel_indices] * self.cfg.rewards.wheel_soft_dof_vel_limit
+        return torch.sum((wheel_vel - wheel_limits).clip(min=0.0, max=1.0), dim=1)
+
+    def _reward_knee_dof_vel_limits(self):
+        knee_vel = torch.abs(self.dof_vel[:, self.knee_indices])
+        knee_limits = self.dof_vel_limits[self.knee_indices] * self.cfg.rewards.knee_soft_dof_vel_limit
+        return torch.sum((knee_vel - knee_limits).clip(min=0.0, max=1.0), dim=1)
+    # end m1-dreamwaq torque/velocity reward transplant
+
+    def _reward_smoothness_2(self):
+        """Second-order action smoothness (Lab smoothness_2).
+
+        Penalize ||a_t - 2 a_{t-1} + a_{t-2}||^2, i.e. change of action rate.
+        First-order term is already covered by base _reward_action_rate.
+        Zero history after reset is ignored (same idea as Lab).
+        """
+        diff = torch.square(self.actions - 2.0 * self.last_actions + self.last_last_actions)
+        valid = (torch.any(self.last_actions != 0.0, dim=1) & torch.any(self.last_last_actions != 0.0, dim=1)).float()
+        return torch.sum(diff, dim=1) * valid
 
     def _reward_gait(self):
         sync_reward_0 = self._sync_reward_func(*self.gait_synced_feet_pairs[0])

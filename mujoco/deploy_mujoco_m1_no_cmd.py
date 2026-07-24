@@ -1,5 +1,7 @@
 import argparse
+import multiprocessing as mp
 import os
+import re
 import time
 from pathlib import Path
 
@@ -11,6 +13,16 @@ import yaml
 from pynput import keyboard
 
 from joystick_interface import JoystickInterface
+from deploy_mujoco_m1_torque_debug import (
+    DEBUG_RECORD_ROOT,
+    MATPLOTLIB_IMPORT_ERROR,
+    PIL_IMPORT_ERROR,
+    Image,
+    TorqueMonitor,
+    make_timestamped_record_dir,
+    overlay_timestamp_on_frame,
+    vel_torque_plot_worker,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -71,8 +83,34 @@ def build_index_map(source_names, target_names, label):
 
 
 class DeployM1NoCmd:
-    def __init__(self, cfg, onnx_override=None):
+    def __init__(
+        self,
+        cfg,
+        onnx_override=None,
+        history_seconds=10.0,
+        plot_refresh_interval=0.1,
+        enable_monitor=False,
+        fixed_cmd=None,
+    ):
         self.cfg = cfg
+        self.enable_monitor = bool(enable_monitor)
+        self.fixed_cmd = None if fixed_cmd is None else np.asarray(fixed_cmd, dtype=np.float32)
+        self.last_raw_tau = np.zeros(0, dtype=np.float32)
+        self.recording_active = False
+        self.recorded_dof_vel = []
+        self.recorded_raw_tau = []
+        self.recorded_clipped_tau = []
+        self.reference_gear_ratios = np.zeros(0, dtype=np.float32)
+        self.plot_processes = []
+        self.recording_timestamp = None
+        self.recording_output_dir = None
+        self.recording_start_sim_time = 0.0
+        self.video_fps = 30.0
+        self.next_video_capture_time = 0.0
+        self.video_frames = []
+        self.video_frame_wall_times = []
+        self.video_renderer = None
+        self.torque_monitor = None
         self.keyboard_state = KeyboardState()
         self.listener = keyboard.Listener(
             on_press=self._on_press,
@@ -199,6 +237,34 @@ class DeployM1NoCmd:
         self._print_startup_summary()
         self.reset(full_reset=True)
 
+        self.last_raw_tau = np.zeros(self.num_actions, dtype=np.float32)
+        self.reference_gear_ratios = np.array([1.0, 1.0, 2.5, 1.0] * 4, dtype=np.float32)
+        if self.enable_monitor:
+            wheel_names = [self.train_dof_names[idx] for idx in self.wheel_policy_indices.tolist()]
+            self.torque_monitor = TorqueMonitor(
+                joint_names=self.train_dof_names,
+                torque_limits=self.torque_limits,
+                default_selected=wheel_names,
+                history_seconds=history_seconds,
+                redraw_interval=plot_refresh_interval,
+                sample_dt=self.simulation_dt,
+            )
+        print("[M1 NoCmd Deploy] Debug hotkeys: O start record, P stop record and save plots.")
+        print(f"[M1 NoCmd Deploy] Debug save root: {DEBUG_RECORD_ROOT}")
+        if self.fixed_cmd is not None:
+            print(
+                "[M1 NoCmd Deploy] Fixed command mode: "
+                f"vx={self.fixed_cmd[0]:+.3f}, vy={self.fixed_cmd[1]:+.3f}, yaw={self.fixed_cmd[2]:+.3f}"
+            )
+        if self.torque_monitor is None:
+            print("[M1 NoCmd Deploy] Torque monitor: disabled by default. Use --enable-monitor to turn it on.")
+        else:
+            print(
+                "[M1 NoCmd Deploy] Torque monitor: "
+                f"raw_tau only, {self.torque_monitor.history_seconds:.1f}s rolling window, "
+                "wheel joints selected by default."
+            )
+
     def _infer_last_dim(self, shape):
         if isinstance(shape[-1], int):
             return int(shape[-1])
@@ -287,6 +353,10 @@ class DeployM1NoCmd:
             self.keyboard_state.strafe_right = True
         elif key_char == "r":
             self.keyboard_state.pending_reset = True
+        elif key_char == "o":
+            self.keyboard_state.start_recording = True
+        elif key_char == "p":
+            self.keyboard_state.stop_recording = True
 
     def _on_release(self, key):
         key_char = getattr(key, "char", None)
@@ -312,6 +382,10 @@ class DeployM1NoCmd:
             self.cmd[:] = 0.0
             self.keyboard_state.clear_command = False
             print("[M1 NoCmd Deploy] Cleared command.")
+            return
+
+        if self.fixed_cmd is not None:
+            self.cmd[:] = self.fixed_cmd
             return
 
         if self.joystick.available:
@@ -355,6 +429,15 @@ class DeployM1NoCmd:
         self.keyboard_state.pending_reset = False
         self.keyboard_state.clear_command = False
         self.last_warn_step.clear()
+        if hasattr(self.keyboard_state, "start_recording"):
+            self.keyboard_state.start_recording = False
+            self.keyboard_state.stop_recording = False
+        if hasattr(self, "last_raw_tau") and self.last_raw_tau.size == self.num_actions:
+            self.last_raw_tau[:] = 0.0
+        if hasattr(self, "next_video_capture_time"):
+            self.next_video_capture_time = float(self.data.time)
+        if getattr(self, "torque_monitor", None) is not None:
+            self.torque_monitor.clear()
         if full_reset:
             self.control_step = 0
         print("[M1 NoCmd Deploy] Reset to default_pos keyframe.")
@@ -453,24 +536,37 @@ class DeployM1NoCmd:
 
         self.action_policy = action.astype(np.float32)
 
-    def compute_torques(self):
-        dof_err = self.default_angles - self.qpos_policy
-        dof_err[self.wheel_policy_indices] = 0.0
+    def compute_desired_targets(self):
+        """SDK-style position/velocity PD targets (policy order: LF/LH/RF/RH).
 
-        actions_scaled = self.action_policy * self.action_scale
-        actions_scaled[self.wheel_policy_indices] = 0.0
+        Legs:  q_des = default + action * action_scale,  qd_des = 0
+        Wheels: q_des unused (kp=0),                    qd_des = action * vel_scale
+        """
+        q_des = self.default_angles.copy()
+        qd_des = np.zeros(self.num_actions, dtype=np.float32)
 
-        vel_ref = np.zeros_like(self.action_policy)
-        vel_ref[self.wheel_policy_indices] = (
+        # leg position targets
+        q_des = self.default_angles + self.action_policy * self.action_scale
+        # wheels do not use position targets
+        q_des[self.wheel_policy_indices] = self.default_angles[self.wheel_policy_indices]
+        # wheel velocity targets
+        qd_des[self.wheel_policy_indices] = (
             self.action_policy[self.wheel_policy_indices] * self.vel_scale
         )
+        return q_des, qd_des
 
-        raw_tau = self.kps * (actions_scaled + dof_err) + self.kds * (
-            vel_ref - self.qvel_policy
+    def compute_torques(self):
+        # Match SDK leg controller form:
+        #   tau = kp * (q_des - q) + kd * (qd_des - qd)
+        # then write force to MuJoCo <motor> actuators (same as SDK sim bridge).
+        q_des, qd_des = self.compute_desired_targets()
+        raw_tau = self.kps * (q_des - self.qpos_policy) + self.kds * (
+            qd_des - self.qvel_policy
         )
+        self.last_raw_tau = raw_tau.astype(np.float32)
         self._warn_if_torque_exceeds_limit(raw_tau)
         clipped_tau = np.clip(raw_tau, -self.torque_limits, self.torque_limits)
-        self.ctrl_policy = clipped_tau
+        self.ctrl_policy = clipped_tau.astype(np.float32)
 
         actuator_ctrl = np.zeros(self.model.nu, dtype=np.float32)
         for policy_idx, actuator_idx in enumerate(self.policy_to_actuator):
@@ -497,6 +593,158 @@ class DeployM1NoCmd:
             f"actual(vx, vy, yaw)=({self.base_lin_vel[0]:+.3f}, {self.base_lin_vel[1]:+.3f}, {self.base_ang_vel[2]:+.3f})"
         )
 
+    def _get_recording_kind(self):
+        return "no_cmd_torque_debug"
+
+    def _get_plot_filename(self):
+        return "torque_scatter.png"
+
+    def _begin_recording_artifacts(self):
+        if PIL_IMPORT_ERROR is not None:
+            raise ModuleNotFoundError(
+                "Pillow is required for saving timestamped MuJoCo recordings."
+            ) from PIL_IMPORT_ERROR
+        self.recording_timestamp, self.recording_output_dir = make_timestamped_record_dir(
+            self._get_recording_kind()
+        )
+        self.recording_start_sim_time = float(self.data.time)
+        self.next_video_capture_time = float(self.data.time)
+        self.video_frames = []
+        self.video_frame_wall_times = []
+        if self.video_renderer is None:
+            self.video_renderer = self._create_video_renderer()
+        print(f"[M1 NoCmd Deploy] Recording output dir: {self.recording_output_dir}")
+
+    def _create_video_renderer(self):
+        target_width = 1280
+        target_height = 720
+        try:
+            return mujoco.Renderer(self.model, height=target_height, width=target_width)
+        except ValueError as exc:
+            message = str(exc)
+            width_match = re.search(r"framebuffer width (\d+)", message)
+            height_match = re.search(r"framebuffer height (\d+)", message)
+            fallback_width = int(width_match.group(1)) if width_match else 640
+            fallback_height = int(height_match.group(1)) if height_match else 480
+            fallback_width = max(64, fallback_width)
+            fallback_height = max(64, fallback_height)
+            print(
+                "[M1 NoCmd Deploy] Renderer size fallback: "
+                f"requested {target_width}x{target_height}, "
+                f"using {fallback_width}x{fallback_height} due to offscreen framebuffer limits."
+            )
+            return mujoco.Renderer(self.model, height=fallback_height, width=fallback_width)
+
+    def _capture_video_frame_if_needed(self, viewer=None):
+        if not self.recording_active or self.video_renderer is None:
+            return
+        current_time = float(self.data.time)
+        if current_time + 1e-9 < self.next_video_capture_time:
+            return
+
+        camera = viewer.cam if viewer is not None else -1
+        self.video_renderer.update_scene(self.data, camera=camera)
+        frame_rgb = self.video_renderer.render()
+        rel_time = current_time - self.recording_start_sim_time
+        overlay = f"{self.recording_timestamp} | no_cmd | t={rel_time:06.3f}s"
+        self.video_frames.append(overlay_timestamp_on_frame(frame_rgb, overlay))
+        self.video_frame_wall_times.append(time.perf_counter())
+        self.next_video_capture_time += 1.0 / self.video_fps
+
+    def _finalize_recording_video(self):
+        if PIL_IMPORT_ERROR is not None:
+            raise ModuleNotFoundError(
+                "Pillow is required for saving timestamped MuJoCo recordings."
+            ) from PIL_IMPORT_ERROR
+        if self.recording_output_dir is None:
+            return None
+        if not self.video_frames:
+            print("[M1 NoCmd Deploy] No video frames captured. Skip video save.")
+            return None
+
+        output_path = self.recording_output_dir / f"{self.recording_timestamp}_mujoco_recording.gif"
+        frames = [Image.fromarray(frame) for frame in self.video_frames]
+        if len(self.video_frame_wall_times) >= 2:
+            frame_duration_ms = [
+                max(
+                    1,
+                    int(
+                        round(
+                            (self.video_frame_wall_times[i + 1] - self.video_frame_wall_times[i])
+                            * 1000.0
+                        )
+                    ),
+                )
+                for i in range(len(self.video_frame_wall_times) - 1)
+            ]
+            frame_duration_ms.append(frame_duration_ms[-1])
+        else:
+            frame_duration_ms = max(1, int(round(1000.0 / self.video_fps)))
+        frames[0].save(
+            output_path,
+            save_all=True,
+            append_images=frames[1:],
+            duration=frame_duration_ms,
+            loop=0,
+        )
+        print(f"[M1 NoCmd Deploy] Saved recording video: {output_path}")
+        return output_path
+
+    def _start_recording_session(self):
+        self.recording_active = True
+        self._begin_recording_artifacts()
+        self.recorded_dof_vel = []
+        self.recorded_raw_tau = []
+        self.recorded_clipped_tau = []
+        print("[M1 NoCmd Deploy] Torque scatter recording started.")
+
+    def _stop_recording_session(self):
+        self.recording_active = False
+        if not self.recorded_dof_vel:
+            print("[M1 NoCmd Deploy] No recorded samples. Skip plotting.")
+            return
+        self._finalize_recording_video()
+        print(
+            "[M1 NoCmd Deploy] Torque scatter recording stopped. "
+            f"Plotting {len(self.recorded_dof_vel)} samples."
+        )
+        self._launch_vel_torque_plot_process()
+
+    def _record_current_sample(self):
+        if not self.recording_active:
+            return
+        self.recorded_dof_vel.append(self.qvel_policy.copy())
+        self.recorded_raw_tau.append(self.last_raw_tau.copy())
+        self.recorded_clipped_tau.append(self.ctrl_policy.copy())
+
+    def _launch_vel_torque_plot_process(self):
+        if MATPLOTLIB_IMPORT_ERROR is not None:
+            raise ModuleNotFoundError(
+                "matplotlib is required for plotting torque debug figures."
+            ) from MATPLOTLIB_IMPORT_ERROR
+
+        ctx = mp.get_context("spawn")
+        output_image_path = str(
+            self.recording_output_dir / f"{self.recording_timestamp}_{self._get_plot_filename()}"
+        )
+        plot_process = ctx.Process(
+            target=vel_torque_plot_worker,
+            args=(
+                list(self.train_dof_names),
+                np.asarray(self.torque_limits, dtype=np.float32),
+                np.asarray(self.reference_gear_ratios, dtype=np.float32),
+                np.asarray(self.recorded_dof_vel, dtype=np.float32),
+                np.asarray(self.recorded_raw_tau, dtype=np.float32),
+                np.asarray(self.recorded_clipped_tau, dtype=np.float32),
+                self.recording_timestamp,
+                output_image_path,
+            ),
+            daemon=False,
+        )
+        plot_process.start()
+        self.plot_processes = [process for process in self.plot_processes if process.is_alive()]
+        self.plot_processes.append(plot_process)
+
     def run(self):
         with mujoco.viewer.launch_passive(self.model, self.data) as viewer:
             start = time.time()
@@ -506,22 +754,35 @@ class DeployM1NoCmd:
                 step_start = time.time()
                 if self.keyboard_state.pending_reset:
                     self.reset()
+                if getattr(self.keyboard_state, "start_recording", False):
+                    self.keyboard_state.start_recording = False
+                    self._start_recording_session()
+                if getattr(self.keyboard_state, "stop_recording", False):
+                    self.keyboard_state.stop_recording = False
+                    self._stop_recording_session()
 
                 self._sync_command()
                 self.get_robot_state()
                 actuator_ctrl = self.compute_torques()
+                self._record_current_sample()
                 self.data.ctrl[:] = actuator_ctrl
                 mujoco.mj_step(self.model, self.data)
+                self._capture_video_frame_if_needed(viewer)
 
                 sim_step += 1
                 if sim_step % self.control_decimation == 0:
                     self.control_step += 1
+                    if self.torque_monitor is not None:
+                        self.torque_monitor.push_sample(self.data.time, self.last_raw_tau)
                     self.get_robot_state()
                     self.compute_observation()
                     self.run_policy()
 
                     if self.control_step % self.log_interval_steps == 0:
                         self.log_command_and_velocity()
+
+                    if self.torque_monitor is not None:
+                        self.torque_monitor.maybe_redraw()
 
                 viewer.sync()
                 remaining = self.model.opt.timestep - (time.time() - step_start)
@@ -531,6 +792,14 @@ class DeployM1NoCmd:
     def shutdown(self):
         self.joystick.stop()
         self.listener.stop()
+        if self.torque_monitor is not None:
+            self.torque_monitor.close()
+        if self.video_renderer is not None:
+            self.video_renderer.close()
+            self.video_renderer = None
+        for plot_process in self.plot_processes:
+            if plot_process.is_alive():
+                plot_process.join(timeout=0.1)
 
 
 def parse_args():
@@ -549,13 +818,66 @@ def parse_args():
         default=None,
         help="Optional ONNX override.",
     )
+    parser.add_argument(
+        "--enable-monitor",
+        action="store_true",
+        help="Enable real-time raw torque monitor window.",
+    )
+    parser.add_argument(
+        "--history-seconds",
+        type=float,
+        default=10.0,
+        help="Raw torque monitor history window in seconds.",
+    )
+    parser.add_argument(
+        "--plot-refresh-interval",
+        type=float,
+        default=0.1,
+        help="Raw torque monitor redraw interval in seconds.",
+    )
+    parser.add_argument(
+        "--cmd-x",
+        type=float,
+        default=None,
+        help="Optional fixed forward velocity command in m/s.",
+    )
+    parser.add_argument(
+        "--cmd-y",
+        type=float,
+        default=None,
+        help="Optional fixed lateral velocity command in m/s.",
+    )
+    parser.add_argument(
+        "--cmd-yaw",
+        type=float,
+        default=None,
+        help="Optional fixed yaw-rate command in rad/s.",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
     cfg = load_config(args.config)
-    deploy = DeployM1NoCmd(cfg, onnx_override=args.onnx)
+    fixed_cmd = None
+    if args.cmd_x is not None or args.cmd_y is not None or args.cmd_yaw is not None:
+        fixed_cmd = np.array(
+            [
+                0.0 if args.cmd_x is None else args.cmd_x,
+                0.0 if args.cmd_y is None else args.cmd_y,
+                0.0 if args.cmd_yaw is None else args.cmd_yaw,
+            ],
+            dtype=np.float32,
+        )
+
+    deploy = DeployM1NoCmd(
+        cfg,
+        onnx_override=args.onnx,
+        history_seconds=args.history_seconds,
+        plot_refresh_interval=args.plot_refresh_interval,
+        enable_monitor=args.enable_monitor,
+        fixed_cmd=fixed_cmd,
+    )
     try:
         deploy.run()
     finally:
