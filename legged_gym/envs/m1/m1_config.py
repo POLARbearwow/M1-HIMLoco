@@ -124,12 +124,17 @@ class M1RoughCfg(LeggedRobotCfg):
         delay = True
 
     class rewards(LeggedRobotCfg.rewards):
+        # Disable these m1-dreamwaq smoothness / joint-velocity / torque penalties
+        # during early training, then re-enable them once the policy is stable.
+        enable_dreamwaq_joint_penalties = True
+
         class scales:
             tracking_lin_vel = 2.0
             tracking_ang_vel = 1.0
             lin_vel_z = -1.0
             ang_vel_xy = -0.05
             orientation = -0.5
+            roll_stability = -0.1
             base_height = -5.0
             hip_default = -0.5
             stand_still = -1.0 #0.5

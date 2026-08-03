@@ -12,6 +12,16 @@ class M1HimRobot(LeggedRobot):
 
     def _parse_cfg(self, cfg):
         super()._parse_cfg(cfg)
+        if not self.cfg.rewards.enable_dreamwaq_joint_penalties:
+            for reward_name in (
+                "smoothness_2",
+                "torque_limits",
+                "raw_torques",
+                "joint_power",
+                "wheel_dof_vel_limits",
+                "knee_dof_vel_limits",
+            ):
+                self.reward_scales[reward_name] = 0.0
         self.stair_command_ranges = class_to_dict(self.cfg.commands.stair_ranges)
 
     def _init_buffers(self):
@@ -183,6 +193,32 @@ class M1HimRobot(LeggedRobot):
         self.commands[self.yaw_only_env_mask, :2] = 0.0
         self._update_gait_timers()
 
+    def _update_terrain_curriculum(self, env_ids):
+        """Use command-scaled progression thresholds on stair terrains."""
+        if not self.init_done:
+            return
+
+        distance = torch.norm(self.root_states[env_ids, :2] - self.env_origins[env_ids, :2], dim=1)
+        stair_mask = self._get_stair_env_mask(env_ids)
+
+        move_up = distance > (self.terrain.env_length / 2)
+        move_down = (distance < torch.norm(self.commands[env_ids, :2], dim=1) * self.max_episode_length_s * 0.5) & ~move_up
+
+        if torch.any(stair_mask):
+            commanded_distance = torch.norm(self.commands[env_ids, :2], dim=1) * self.max_episode_length_s
+            stair_move_up = distance > commanded_distance * 0.5
+            stair_move_down = (distance < commanded_distance * 0.5) & ~stair_move_up
+            move_up = torch.where(stair_mask, stair_move_up, move_up)
+            move_down = torch.where(stair_mask, stair_move_down, move_down)
+
+        self.terrain_levels[env_ids] += move_up.to(torch.long) - move_down.to(torch.long)
+        self.terrain_levels[env_ids] = torch.where(
+            self.terrain_levels[env_ids] >= self.max_terrain_level,
+            torch.randint_like(self.terrain_levels[env_ids], self.max_terrain_level),
+            torch.clip(self.terrain_levels[env_ids], 0),
+        )
+        self.env_origins[env_ids] = self.terrain_origins[self.terrain_levels[env_ids], self.terrain_types[env_ids]]
+
     def _update_gait_timers(self):
         contact = self.contact_forces[:, self.feet_indices, 2] > 1.0
         self.gait_contact_time = torch.where(
@@ -256,6 +292,10 @@ class M1HimRobot(LeggedRobot):
         reward = torch.exp(-torch.sum(stance_diff, dim=1) / (self.cfg.rewards.feet_distance_y_sigma ** 2))
         reward *= torch.clamp(-self.projected_gravity[:, 2], 0.0, 0.7) / 0.7
         return reward
+
+    def _reward_roll_stability(self):
+        # Further suppress trunk roll using the body-frame lateral gravity component.
+        return torch.square(self.projected_gravity[:, 1])
 
     def _get_gait_reward_gate(self):
         lateral_cmd = torch.abs(self.commands[:, 1])

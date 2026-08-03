@@ -137,7 +137,7 @@ class Terrain:
         amplitude = 0.01 + 0.07 * difficulty
         step_height = 0.05 + 0.18 * difficulty
         # step_height = 0.1 + 0.18 * difficulty
-        stair_tread_depth = 0.25 + np.random.uniform(-0.02, 0.02)
+        stair_tread_depth = 0.25 + np.random.uniform(-0.05, 0.05)
         discrete_obstacles_height = 0.05 + difficulty * 0.2
         stepping_stones_size = 1.5 * (1.05 - difficulty)
         stone_distance = 0.05 if difficulty==0 else 0.1
