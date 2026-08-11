@@ -65,11 +65,8 @@ python play.py --task=m1_him
 python play.py --task=m1_him_no_cmd
 ```
 
-## Quick Start: Sim-to-Sim
+## Sim-to-Sim
 
-MuJoCo model used by the deploy scripts:
-
-![M1 robot model](images/collision.jpg)
 
 Run the standard HIM deploy path:
 
@@ -77,12 +74,12 @@ Run the standard HIM deploy path:
 cd mujoco
 python deploy_mujoco_m1.py
 ```
-
+<!-- 
 Default config and assets:
 
 - config: `mujoco/configs/m1.yaml`
 - ONNX policy: `logs/M1_HIM/exported/policies/policy.onnx`
-- MuJoCo scene: `resources/robots/m1/scene.xml`
+- MuJoCo scene: `resources/robots/m1/scene.xml` -->
 
 Run the no-command deploy path:
 
@@ -213,12 +210,12 @@ Flat-ground torque view captured in Foxglove:
 
 ## Export ONNX
 
-Export `m1_him`:
+<!-- Export `m1_him`:
 
 ```bash
 cd legged_gym/scripts
 python export_onnx.py --task m1_him
-```
+``` -->
 
 Export `m1_him_no_cmd`:
 
@@ -245,7 +242,7 @@ Useful options:
 - `--output_name <name>`
 - `--rl_device cpu|cuda:0`
 
-Example:
+<!-- Example:
 
 ```bash
 cd legged_gym/scripts
@@ -255,7 +252,7 @@ python export_onnx.py \
   --checkpoint 5000 \
   --output_dir ../../artifacts/onnx \
   --output_name m1_no_cmd_5000.onnx
-```
+``` -->
 
 The exported ONNX interfaces are different:
 
@@ -266,13 +263,17 @@ This matches the MuJoCo deploy path, where the no-command estimator history is s
 
 ## Performance
 
-Stair traversal
+Current M1 robot model used in this project.
+
+![M1 robot model](images/collision.jpg)
+
+Current real-robot stair traversal behavior:
 
 ![Stair traversal example](images/stair.gif)
 
-Foxglove live view example:
+<!-- Foxglove live view example:
 
-![Foxglove live view example](images/foxglove.gif)
+![Foxglove live view example](images/foxglove.gif) -->
 
 - Flat-ground deploy behavior:
 
@@ -283,6 +284,35 @@ Torques distribution:
 ![Foxglove torque on flat ground](images/plane_foxglove.jpg)
 
 ![Foxglove torque on rough terrain](images/rough_foxglove.jpg)
+
+The real-robot behavior is still not fully satisfactory on rough terrain. The policy tends to produce different torque magnitudes between the front legs and the rear legs. This asymmetry makes the robot more likely to drag its legs when moving over rough terrain, so the current policy and reward design still need further adjustment.
+
+## Recommended Training Schedule
+
+For M1 training, a two-stage schedule is currently recommended in [legged_gym/envs/m1/m1_config.py](/home/ltr/Desktop/LTR-M1-Dreamwq-m1-dreamwaq/HIMLoco-for-Go2W/legged_gym/envs/m1/m1_config.py).
+
+Stage 1, early stabilization:
+
+- set `terrain.mesh_type = "plane"`
+- set `rewards.enable_dreamwaq_joint_penalties = False`
+
+This stage is used to obtain an initial stable checkpoint more easily. The goal is not to get the final terrain-capable policy, but to reduce early optimization difficulty and let the policy first learn basic locomotion.
+
+Stage 2, resume on terrain:
+
+- resume training from the checkpoint obtained in Stage 1
+- switch `terrain.mesh_type` from `plane` to terrain training, for example the current `trimesh` setup
+- set `rewards.enable_dreamwaq_joint_penalties = True`
+
+This second stage is the more deployment-oriented stage. In the current setup, the joint penalties are relatively strict. They are likely over-constrained and still need further tuning, but they help produce more stable stair-climbing behavior.
+
+At the moment, the practical recommendation is:
+
+1. Train on `plane` with joint penalties disabled.
+2. Save a usable checkpoint.
+3. Resume training on terrain with joint penalties enabled.
+
+The joint penalty design is still under active adjustment. The current version is useful for stability, especially on stairs, but it should not be treated as the final reward setting.
 
 ## Reference
 
