@@ -1,0 +1,400 @@
+{
+  "asset": {
+    "angular_damping": 0.0,
+    "armature": 0.0,
+    "collapse_fixed_joints": true,
+    "default_dof_drive_mode": 3,
+    "density": 0.001,
+    "disable_gravity": false,
+    "file": "{LEGGED_GYM_ROOT_DIR}/resources/robots/m1/urdf/m1.urdf",
+    "fix_base_link": false,
+    "flip_visual_attachments": false,
+    "foot_name": "FOOT",
+    "linear_damping": 0.0,
+    "max_angular_velocity": 1000.0,
+    "max_linear_velocity": 1000.0,
+    "name": "m1",
+    "penalize_contacts_on": [
+      "abad",
+      "thigh",
+      "shank",
+      "trunk"
+    ],
+    "replace_cylinder_with_capsule": false,
+    "self_collisions": 0,
+    "terminate_after_contacts_on": [
+      "trunk"
+    ],
+    "thickness": 0.01,
+    "wheel_name": [
+      "WHEEL"
+    ]
+  },
+  "commands": {
+    "curriculum": false,
+    "heading_command": true,
+    "max_curriculum": 1.2,
+    "num_commands": 4,
+    "ranges": {
+      "ang_vel_yaw": [
+        -1.0,
+        1.0
+      ],
+      "heading": [
+        -3.14,
+        3.14
+      ],
+      "lin_vel_x": [
+        -1.5,
+        1.5
+      ],
+      "lin_vel_y": [
+        -0.6,
+        0.6
+      ]
+    },
+    "resampling_time": 10.0,
+    "stair_ranges": {
+      "ang_vel_yaw": [
+        -0.2,
+        0.2
+      ],
+      "heading": [
+        -0.2,
+        0.2
+      ],
+      "lin_vel_x": [
+        -1.2,
+        1.2
+      ],
+      "lin_vel_y": [
+        -0.2,
+        0.2
+      ]
+    },
+    "y_only_env_ratio": 0.1,
+    "yaw_only_env_ratio": 0.1
+  },
+  "control": {
+    "action_scale": 0.25,
+    "control_type": "P",
+    "damping": {
+      "HAA": 2.0,
+      "HFE": 2.0,
+      "KNEE": 2.0,
+      "WHEEL": 1.0
+    },
+    "decimation": 4,
+    "rated_torque_limit_ratio": 0.8,
+    "rated_torque_limit_ratio_haa": 0.7,
+    "rated_torque_limit_ratio_hfe": 0.7,
+    "stiffness": {
+      "HAA": 40.0,
+      "HFE": 40.0,
+      "KNEE": 40.0,
+      "WHEEL": 0.0
+    },
+    "vel_scale": 5.0
+  },
+  "domain_rand": {
+    "com_displacement_range": [
+      -0.05,
+      0.05
+    ],
+    "delay": true,
+    "disturbance": true,
+    "disturbance_interval": 10,
+    "disturbance_range": [
+      -30.0,
+      30.0
+    ],
+    "friction_range": [
+      0.2,
+      1.25
+    ],
+    "initial_joint_pos_range": [
+      0.5,
+      1.5
+    ],
+    "kd_range": [
+      0.85,
+      1.15
+    ],
+    "kp_range": [
+      0.85,
+      1.15
+    ],
+    "link_mass_range": [
+      0.8,
+      1.2
+    ],
+    "max_push_vel_xy": 1.0,
+    "motor_strength_range": [
+      0.85,
+      1.15
+    ],
+    "payload_mass_range": [
+      -3.0,
+      5.0
+    ],
+    "push_interval": 501.0,
+    "push_interval_s": 10,
+    "push_robots": true,
+    "randomize_com_displacement": true,
+    "randomize_friction": true,
+    "randomize_initial_joint_pos": false,
+    "randomize_kd": true,
+    "randomize_kp": true,
+    "randomize_link_mass": true,
+    "randomize_motor_strength": true,
+    "randomize_payload_mass": true,
+    "randomize_restitution": true,
+    "restitution_range": [
+      0.0,
+      1.0
+    ]
+  },
+  "env": {
+    "env_spacing": 3.0,
+    "episode_length_s": 20,
+    "num_actions": 16,
+    "num_envs": 4096,
+    "num_observations": 342,
+    "num_one_step_observations": 57,
+    "num_one_step_privileged_obs": 262,
+    "num_privileged_obs": 262,
+    "send_timeouts": true
+  },
+  "init_member_classes": {},
+  "init_state": {
+    "ang_vel": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "default_joint_angles": {
+      "LF_HAA": 0.0,
+      "LF_HFE": 0.8,
+      "LF_KNEE": -1.28,
+      "LF_WHEEL": 0.0,
+      "RF_HAA": 0.0,
+      "RF_HFE": 0.8,
+      "RF_KNEE": -1.28,
+      "RF_WHEEL": 0.0,
+      "LH_HAA": 0.0,
+      "LH_HFE": -0.8,
+      "LH_KNEE": 1.28,
+      "LH_WHEEL": 0.0,
+      "RH_HAA": 0.0,
+      "RH_HFE": -0.8,
+      "RH_KNEE": 1.28,
+      "RH_WHEEL": 0.0
+    },
+    "lin_vel": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "pos": [
+      0.0,
+      0.0,
+      0.7
+    ],
+    "rot": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "noise": {
+    "add_noise": true,
+    "noise_level": 1.0,
+    "noise_scales": {
+      "ang_vel": 0.2,
+      "dof_pos": 0.01,
+      "dof_vel": 1.5,
+      "gravity": 0.05,
+      "height_measurements": 0.1,
+      "lin_vel": 0.1
+    }
+  },
+  "normalization": {
+    "clip_actions": 100.0,
+    "clip_observations": 100.0,
+    "contact_force_range": [
+      0.0,
+      50.0
+    ],
+    "obs_scales": {
+      "ang_vel": 0.25,
+      "dof_pos": 1.0,
+      "dof_vel": 0.05,
+      "height_measurements": 5.0,
+      "lin_vel": 2.0
+    }
+  },
+  "rewards": {
+    "base_height_target": 0.54,
+    "feet_air_time_target": 0.7,
+    "feet_distance_y_sigma": 0.08,
+    "feet_distance_y_target": 0.5,
+    "feet_height_body_sigma": 0.05,
+    "feet_height_body_target": 0.1,
+    "feet_height_cmd_threshold": 0.1,
+    "feet_height_tanh_mult": 2.0,
+    "gait_lateral_cmd_threshold": 0.2,
+    "gait_max_err": 0.5,
+    "gait_std": 0.2,
+    "gait_synced_feet_pair_labels": [
+      [
+        "LF",
+        "RH"
+      ],
+      [
+        "LH",
+        "RF"
+      ]
+    ],
+    "gait_yaw_cmd_threshold": 0.2,
+    "knee_soft_dof_vel_limit": 0.6,
+    "max_contact_force": 100.0,
+    "only_positive_rewards": true,
+    "scales": {
+      "action_rate": -0.03,
+      "ang_vel_xy": -0.05,
+      "base_height": -5.0,
+      "collision": -1.0,
+      "dof_acc": -1e-07,
+      "dof_vel": -0.0001,
+      "feet_air_time": 1.5,
+      "feet_distance_y_exp": 0.25,
+      "feet_height_body": 0.0,
+      "feet_stumble": -0.1,
+      "gait": 0.6,
+      "hip_default": -0.5,
+      "joint_power": -0.0001,
+      "knee_dof_vel_limits": -2.0,
+      "lin_vel_z": -1.0,
+      "orientation": -0.5,
+      "raw_torques": -0.01,
+      "run_still": -0.05,
+      "smoothness_2": -0.01,
+      "stand_still": -1.0,
+      "torque_limits": -0.001,
+      "torques": -5e-06,
+      "tracking_ang_vel": 1.0,
+      "tracking_lin_vel": 2.0,
+      "wheel_dof_vel_limits": -2.0,
+      "wheel_vel_air_side": 0.0,
+      "wheel_vel_penalty": -0.0
+    },
+    "soft_dof_pos_limit": 1.0,
+    "soft_dof_vel_limit": 0.6,
+    "soft_torque_limit": 0.7,
+    "tracking_sigma": 0.2,
+    "wheel_air_contact_force_threshold": 1.0,
+    "wheel_side_force_ratio": 0.5,
+    "wheel_soft_dof_vel_limit": 0.7,
+    "wheel_vel_air_side_active_bias": 0.5,
+    "wheel_vel_air_side_force_coef": 0.02,
+    "wheel_vel_air_side_vel_square_coef": 0.05,
+    "wheel_vel_penalty_command_threshold": 0.15,
+    "wheel_vel_penalty_velocity_threshold": 0.15
+  },
+  "seed": 1,
+  "sim": {
+    "dt": 0.005,
+    "gravity": [
+      0.0,
+      0.0,
+      -9.81
+    ],
+    "physx": {
+      "bounce_threshold_velocity": 0.5,
+      "contact_collection": 2,
+      "contact_offset": 0.01,
+      "default_buffer_size_multiplier": 5,
+      "max_depenetration_velocity": 1.0,
+      "max_gpu_contact_pairs": 8388608,
+      "num_position_iterations": 4,
+      "num_threads": 10,
+      "num_velocity_iterations": 0,
+      "rest_offset": 0.0,
+      "solver_type": 1
+    },
+    "substeps": 1,
+    "up_axis": 1
+  },
+  "terrain": {
+    "border_size": 25,
+    "curriculum": false,
+    "dynamic_friction": 1.0,
+    "horizontal_scale": 0.05,
+    "max_init_terrain_level": 5,
+    "measure_heights": true,
+    "measured_points_x": [
+      -0.8,
+      -0.7,
+      -0.6,
+      -0.5,
+      -0.4,
+      -0.3,
+      -0.2,
+      -0.1,
+      0.0,
+      0.1,
+      0.2,
+      0.3,
+      0.4,
+      0.5,
+      0.6,
+      0.7,
+      0.8
+    ],
+    "measured_points_y": [
+      -0.5,
+      -0.4,
+      -0.3,
+      -0.2,
+      -0.1,
+      0.0,
+      0.1,
+      0.2,
+      0.3,
+      0.4,
+      0.5
+    ],
+    "mesh_type": "plane",
+    "num_cols": 10,
+    "num_rows": 10,
+    "restitution": 0.0,
+    "selected": false,
+    "slope_treshold": 0.75,
+    "static_friction": 1.0,
+    "terrain_kwargs": null,
+    "terrain_length": 8.0,
+    "terrain_proportions": [
+      0.1,
+      0.1,
+      0.4,
+      0.3,
+      0.1
+    ],
+    "terrain_width": 8.0,
+    "vertical_scale": 0.005
+  },
+  "viewer": {
+    "lookat": [
+      11.0,
+      5,
+      3.0
+    ],
+    "pos": [
+      10,
+      0,
+      6
+    ],
+    "ref_env": 0
+  }
+}

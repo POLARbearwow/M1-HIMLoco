@@ -1,0 +1,39 @@
+algorithm:
+  clip_param: 0.2
+  desired_kl: 0.01
+  entropy_coef: 0.005
+  gamma: 0.99
+  lam: 0.95
+  learning_rate: 0.001
+  max_grad_norm: 1.0
+  num_learning_epochs: 5
+  num_mini_batches: 4
+  schedule: adaptive
+  use_clipped_value_loss: true
+  value_loss_coef: 1.0
+init_member_classes: {}
+policy:
+  activation: elu
+  actor_hidden_dims:
+  - 512
+  - 256
+  - 128
+  critic_hidden_dims:
+  - 512
+  - 256
+  - 128
+  init_noise_std: 1.0
+runner:
+  algorithm_class_name: HIMPPO
+  checkpoint: 5000
+  experiment_name: M1_HIM_NoCmd
+  load_run: Jul31_11-19-06_
+  max_iterations: 50000
+  num_steps_per_env: 48
+  policy_class_name: HIMActorCriticNoCmd
+  resume: true
+  resume_path: null
+  run_name: ''
+  save_interval: 100
+runner_class_name: HIMOnPolicyRunner
+seed: 1
