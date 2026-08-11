@@ -271,9 +271,9 @@ Current real-robot stair traversal behavior:
 
 ![Stair traversal example](images/stair.gif)
 
-<!-- Foxglove live view example:
+Foxglove live view example:
 
-![Foxglove live view example](images/foxglove.gif) -->
+![Foxglove live view example](images/foxglove.gif)
 
 - Flat-ground deploy behavior:
 
